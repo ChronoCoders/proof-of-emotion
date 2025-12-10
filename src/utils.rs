@@ -8,11 +8,9 @@ pub fn calculate_stake_weight(stake: u64) -> f64 {
 /// Calculate emotional bonus multiplier
 pub fn calculate_emotional_multiplier(emotional_score: u8, threshold: u8) -> f64 {
     if emotional_score < threshold {
-        // Penalty for low scores
         let penalty = (threshold - emotional_score) as f64 / 100.0;
         1.0 - (penalty * 0.5).min(0.5)
     } else {
-        // Bonus for high scores
         let bonus = (emotional_score - threshold) as f64 / 100.0;
         1.0 + (bonus * 0.3).min(0.3)
     }
@@ -61,7 +59,7 @@ pub fn calculate_sma(values: &[f64], period: usize) -> Vec<f64> {
 
     let mut sma = Vec::new();
     for i in period - 1..values.len() {
-        let start = if i >= period - 1 { i - (period - 1) } else { 0 };
+        let start = i.saturating_sub(period - 1);
         let sum: f64 = values[start..=i].iter().sum();
         sma.push(sum / period as f64);
     }
@@ -135,13 +133,8 @@ mod tests {
 
     #[test]
     fn test_emotional_multiplier() {
-        // Below threshold
         assert!(calculate_emotional_multiplier(50, 75) < 1.0);
-        
-        // At threshold
         assert_eq!(calculate_emotional_multiplier(75, 75), 1.0);
-        
-        // Above threshold
         assert!(calculate_emotional_multiplier(90, 75) > 1.0);
     }
 
@@ -157,7 +150,7 @@ mod tests {
         let x = vec![1.0, 2.0, 3.0, 4.0, 5.0];
         let y = vec![2.0, 4.0, 6.0, 8.0, 10.0];
         let corr = calculate_correlation(&x, &y);
-        assert!((corr - 1.0).abs() < 0.001); // Perfect correlation
+        assert!((corr - 1.0).abs() < 0.001);
     }
 
     #[test]
@@ -165,7 +158,7 @@ mod tests {
         let values = vec![1.0, 2.0, 3.0, 4.0, 5.0];
         let sma = calculate_sma(&values, 3);
         assert_eq!(sma.len(), 3);
-        assert_eq!(sma[0], 2.0); // (1+2+3)/3
+        assert_eq!(sma[0], 2.0);
     }
 
     #[test]
@@ -173,7 +166,7 @@ mod tests {
         let values = vec![1.0, 2.0, 3.0, 100.0, 4.0, 5.0];
         let anomalies = detect_anomalies(&values, 2.0);
         assert!(!anomalies.is_empty());
-        assert!(anomalies.contains(&3)); // 100.0 is an anomaly
+        assert!(anomalies.contains(&3));
     }
 
     #[test]
@@ -201,7 +194,7 @@ mod tests {
         let seed2 = string_to_seed("validator-1");
         let seed3 = string_to_seed("validator-2");
         
-        assert_eq!(seed1, seed2); // Deterministic
-        assert_ne!(seed1, seed3); // Different inputs
+        assert_eq!(seed1, seed2);
+        assert_ne!(seed1, seed3);
     }
 }

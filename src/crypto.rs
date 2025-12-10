@@ -104,13 +104,11 @@ impl KeyPair {
     pub fn verify(message: &[u8], signature: &Signature, public_key_hex: &str) -> Result<bool> {
         let secp = Secp256k1::new();
         
-        // Decode public key
         let public_key_bytes = hex::decode(public_key_hex)
             .map_err(|e| ConsensusError::internal(format!("Invalid public key hex: {}", e)))?;
         let public_key = PublicKey::from_slice(&public_key_bytes)
             .map_err(|e| ConsensusError::internal(format!("Invalid public key: {}", e)))?;
 
-        // Decode signature
         let signature_bytes = hex::decode(&signature.signature)
             .map_err(|e| ConsensusError::internal(format!("Invalid signature hex: {}", e)))?;
         let recovery_id = RecoveryId::from_i32(signature.recovery_id as i32)
@@ -118,12 +116,10 @@ impl KeyPair {
         let recoverable_sig = RecoverableSignature::from_compact(&signature_bytes, recovery_id)
             .map_err(|e| ConsensusError::internal(format!("Invalid signature: {}", e)))?;
 
-        // Hash message
         let message_hash = Sha256::digest(message);
         let message = Message::from_digest_slice(&message_hash)
             .map_err(|e| ConsensusError::internal(format!("Invalid message: {}", e)))?;
 
-        // Recover public key from signature and verify
         let recovered_key = secp.recover_ecdsa(&message, &recoverable_sig)
             .map_err(|e| ConsensusError::signature_verification_failed(format!("Recovery failed: {}", e)))?;
 
@@ -150,10 +146,8 @@ impl EmotionalProof {
             .unwrap()
             .as_millis() as u64;
 
-        // Calculate consensus strength
         let consensus_strength = Self::calculate_consensus_strength(&emotional_scores);
 
-        // Calculate merkle root
         let merkle_root = Self::calculate_merkle_root(
             &validators,
             &emotional_scores,
@@ -162,7 +156,6 @@ impl EmotionalProof {
             timestamp,
         );
 
-        // Create proof data for signing
         let proof_data = format!(
             "{}:{}:{}:{}:{}",
             validators.join(","),
@@ -172,7 +165,6 @@ impl EmotionalProof {
             timestamp
         );
 
-        // Sign the proof
         let signature = key_pair.sign(proof_data.as_bytes())?;
 
         Ok(Self {
@@ -196,7 +188,6 @@ impl EmotionalProof {
         let sum: u32 = scores.values().map(|&s| s as u32).sum();
         let avg = sum / scores.len() as u32;
         
-        // Calculate variance
         let variance: f64 = scores
             .values()
             .map(|&s| {
@@ -205,10 +196,9 @@ impl EmotionalProof {
             })
             .sum::<f64>() / scores.len() as f64;
 
-        // Penalty for high variance
         let variance_penalty = (variance.sqrt() / 5.0).min(20.0);
         
-        (avg as f64 - variance_penalty).max(0.0).min(100.0) as u8
+        (avg as f64 - variance_penalty).clamp(0.0, 100.0) as u8
     }
 
     /// Calculate merkle root of proof data
@@ -234,7 +224,6 @@ impl EmotionalProof {
 
     /// Verify the emotional proof
     pub fn verify(&self, public_key_hex: &str) -> Result<bool> {
-        // Verify signature
         let proof_data = format!(
             "{}:{}:{}:{}:{}",
             self.validators.join(","),
@@ -254,7 +243,6 @@ impl EmotionalProof {
             return Ok(false);
         }
 
-        // Verify merkle root
         let expected_merkle_root = Self::calculate_merkle_root(
             &self.validators,
             &self.emotional_scores,
@@ -267,18 +255,15 @@ impl EmotionalProof {
             return Ok(false);
         }
 
-        // Verify temporal validity (not too old)
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_millis() as u64;
 
         if now - self.timestamp > 300_000 {
-            // More than 5 minutes old
             return Ok(false);
         }
 
-        // Verify consensus strength calculation
         let expected_strength = Self::calculate_consensus_strength(&self.emotional_scores);
         if (expected_strength as i16 - self.consensus_strength as i16).abs() > 1 {
             return Ok(false);
@@ -357,6 +342,6 @@ mod tests {
         scores.insert("v3".to_string(), 83);
         
         let strength = EmotionalProof::calculate_consensus_strength(&scores);
-        assert!(strength > 80); // Should be around average minus small variance penalty
+        assert!(strength > 80);
     }
 }

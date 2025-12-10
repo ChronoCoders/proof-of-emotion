@@ -1,6 +1,6 @@
 //! Biometric validation and emotional state monitoring
 
-use crate::crypto::{hash_biometric_data, KeyPair};
+use crate::crypto::KeyPair;
 use crate::error::{ConsensusError, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
@@ -136,13 +136,8 @@ impl EmotionalValidator {
             ));
         }
 
-        // Calculate emotional score
         let emotional_score = self.calculate_emotional_score(&readings)?;
-
-        // Analyze trend
         let trend = self.analyze_trend(emotional_score);
-
-        // Calculate confidence
         let confidence = self.calculate_confidence(&readings);
 
         let timestamp = std::time::SystemTime::now()
@@ -158,10 +153,8 @@ impl EmotionalValidator {
             recent_readings: readings,
         };
 
-        // Update profile
         *self.emotional_profile.write() = Some(profile);
 
-        // Update score history
         let mut history = self.score_history.write();
         history.push_back((emotional_score, timestamp));
         if history.len() > 100 {
@@ -179,7 +172,6 @@ impl EmotionalValidator {
         for reading in readings {
             let (score, weight) = match reading.biometric_type {
                 BiometricType::HeartRate => {
-                    // Optimal heart rate: 60-100 BPM
                     let hr = reading.value;
                     let score = if (60.0..=80.0).contains(&hr) {
                         100.0
@@ -191,17 +183,15 @@ impl EmotionalValidator {
                     (score, reading.quality)
                 }
                 BiometricType::StressLevel => {
-                    // Lower stress is better
                     let stress = reading.value.clamp(0.0, 100.0);
                     let score = 100.0 - stress;
                     (score, reading.quality)
                 }
                 BiometricType::FocusLevel => {
-                    // Higher focus is better
                     let focus = reading.value.clamp(0.0, 100.0);
                     (focus, reading.quality)
                 }
-                _ => (75.0, reading.quality), // Default score for other types
+                _ => (75.0, reading.quality),
             };
 
             total_score += score * weight;
@@ -226,10 +216,8 @@ impl EmotionalValidator {
             return EmotionalTrend::Stable;
         }
 
-        // Take last 5 scores
         let recent: Vec<_> = history.iter().rev().take(5).map(|(s, _)| *s).collect();
         
-        // Simple linear regression slope
         let n = recent.len() as f64;
         let sum_x: f64 = (0..recent.len()).map(|i| i as f64).sum();
         let sum_y: f64 = recent.iter().map(|&s| s as f64).sum();
@@ -253,16 +241,13 @@ impl EmotionalValidator {
             return 0;
         }
 
-        // Average quality
         let avg_quality = readings.iter().map(|r| r.quality).sum::<f64>() / readings.len() as f64;
         let quality_score = (avg_quality * 100.0) as u8;
 
-        // Multi-modal bonus (different types of readings)
         let unique_types: std::collections::HashSet<_> = 
             readings.iter().map(|r| &r.biometric_type).collect();
         let multimodal_bonus = (unique_types.len() * 5).min(20) as u8;
 
-        // Temporal consistency (readings within reasonable timeframe)
         let timestamps: Vec<_> = readings.iter().map(|r| r.timestamp).collect();
         let time_span = timestamps.iter().max().unwrap() - timestamps.iter().min().unwrap();
         let temporal_bonus = if time_span < 5000 { 10 } else if time_span < 60000 { 5 } else { 0 };
@@ -302,7 +287,6 @@ impl EmotionalValidator {
         let mut stake = self.stake.write();
         *stake = stake.saturating_sub(amount);
         
-        // Reduce reputation
         let mut reputation = self.reputation.write();
         let penalty = ((amount as f64 / *stake as f64) * 10.0).min(20.0) as u8;
         *reputation = reputation.saturating_sub(penalty);
@@ -343,7 +327,6 @@ pub struct BiometricSimulator {
 impl BiometricSimulator {
     /// Create a new biometric simulator
     pub fn new(device_id: String, validator_id: &str) -> Self {
-        // Create deterministic seed from validator ID
         let validator_seed = validator_id
             .bytes()
             .fold(0u64, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u64));
@@ -359,10 +342,7 @@ impl BiometricSimulator {
         let baseline = 60.0 + (self.validator_seed % 25) as f64;
         let time_of_day = (timestamp % (24 * 60 * 60 * 1000)) as f64 / (24.0 * 60.0 * 60.0 * 1000.0);
         
-        // Circadian rhythm
         let circadian_factor = 1.0 + 0.15 * (2.0 * std::f64::consts::PI * (time_of_day - 0.25)).sin();
-        
-        // Stress/activity variation
         let stress_variation = 0.9 + 0.2 * ((self.validator_seed as f64 + timestamp as f64 / 300000.0).sin());
         
         baseline * circadian_factor * stress_variation
@@ -373,7 +353,6 @@ impl BiometricSimulator {
         let base_stress = (self.validator_seed % 40) as f64;
         let time_of_day = (timestamp % (24 * 60 * 60 * 1000)) as f64 / (24.0 * 60.0 * 60.0 * 1000.0);
         
-        // Higher stress during work hours
         let work_factor = if (0.375..=0.75).contains(&time_of_day) { 1.3 } else { 0.8 };
         
         (base_stress * work_factor).min(100.0)
@@ -384,7 +363,6 @@ impl BiometricSimulator {
         let base_focus = 60.0 + ((self.validator_seed % 30) as f64);
         let time_of_day = (timestamp % (24 * 60 * 60 * 1000)) as f64 / (24.0 * 60.0 * 60.0 * 1000.0);
         
-        // Peak focus in morning and evening
         let circadian_focus = 0.7 + 0.3 * f64::max(
             (2.0 * std::f64::consts::PI * (time_of_day - 0.25)).sin(),
             (2.0 * std::f64::consts::PI * (time_of_day - 0.7)).sin(),
@@ -446,7 +424,7 @@ mod tests {
     async fn test_validator_creation() {
         let validator = EmotionalValidator::new("test-validator", 10000).unwrap();
         assert_eq!(validator.get_stake(), 10000);
-        assert_eq!(validator.get_emotional_score(), 0); // No readings yet
+        assert_eq!(validator.get_emotional_score(), 0);
     }
 
     #[tokio::test]
@@ -470,7 +448,6 @@ mod tests {
         let readings = simulator.collect_readings().unwrap();
         validator.update_emotional_state(readings).await.unwrap();
         
-        // Should be eligible with good readings
         assert!(validator.is_eligible(50, 10000));
     }
 

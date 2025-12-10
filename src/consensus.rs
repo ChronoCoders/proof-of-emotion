@@ -1,7 +1,6 @@
 //! Main Proof of Emotion consensus engine
 
 use crate::biometric::{BiometricDevice, BiometricSimulator, EmotionalValidator};
-use crate::crypto::EmotionalProof;
 use crate::error::{ConsensusError, Result};
 use crate::types::{Block, Transaction, Vote, VotingResult};
 use dashmap::DashMap;
@@ -125,8 +124,6 @@ pub struct ProofOfEmotionEngine {
     state: Arc<RwLock<ConsensusState>>,
     /// Is engine running
     is_running: Arc<RwLock<bool>>,
-    /// Current round
-    current_round: Arc<RwLock<Option<ConsensusRound>>>,
     /// Metrics
     metrics: Arc<RwLock<ConsensusMetrics>>,
     /// Finalized blocks
@@ -136,7 +133,6 @@ pub struct ProofOfEmotionEngine {
 impl ProofOfEmotionEngine {
     /// Create a new consensus engine
     pub fn new(config: ConsensusConfig) -> Result<Self> {
-        // Validate configuration
         if config.emotional_threshold > 100 {
             return Err(ConsensusError::config_error("Emotional threshold must be <= 100"));
         }
@@ -161,7 +157,6 @@ impl ProofOfEmotionEngine {
                 pending_transactions: 0,
             })),
             is_running: Arc::new(RwLock::new(false)),
-            current_round: Arc::new(RwLock::new(None)),
             metrics: Arc::new(RwLock::new(ConsensusMetrics::default())),
             finalized_blocks: Arc::new(RwLock::new(Vec::new())),
         })
@@ -198,10 +193,8 @@ impl ProofOfEmotionEngine {
         info!("💓 Emotional threshold: {}%", self.config.emotional_threshold);
         info!("🛡️  Byzantine threshold: {}%", self.config.byzantine_threshold);
 
-        // Clone Arc for the spawned task
         let engine = Arc::clone(&self);
         
-        // Start epoch loop
         tokio::spawn(async move {
             engine.epoch_loop().await;
         });
@@ -251,7 +244,6 @@ impl ProofOfEmotionEngine {
     async fn execute_epoch(&self) -> Result<()> {
         let start_time = std::time::Instant::now();
         
-        // Increment epoch counter
         let mut state = self.state.write().await;
         state.current_epoch += 1;
         let epoch = state.current_epoch;
@@ -259,7 +251,6 @@ impl ProofOfEmotionEngine {
 
         info!("⏰ Starting epoch {}", epoch);
 
-        // Phase 1: Emotional Assessment
         let eligible_validators = self.perform_emotional_assessment().await?;
         
         if eligible_validators.is_empty() {
@@ -270,17 +261,14 @@ impl ProofOfEmotionEngine {
 
         info!("💓 {}/{} validators eligible", eligible_validators.len(), self.validators.len());
 
-        // Phase 2: Committee Selection
         let committee = self.select_committee(&eligible_validators).await?;
         
         info!("👥 Committee selected: {} validators", committee.len());
 
-        // Phase 3: Block Proposal
         let proposed_block = self.propose_block(&committee).await?;
         
         info!("📦 Block {} proposed by {}", proposed_block.header.height, proposed_block.header.validator_id);
 
-        // Phase 4: Voting
         let voting_result = self.execute_voting(&committee, &proposed_block).await?;
         
         if !voting_result.success {
@@ -292,10 +280,8 @@ impl ProofOfEmotionEngine {
 
         info!("✅ Consensus reached: {}% strength", voting_result.consensus_strength);
 
-        // Phase 5: Finalization
         self.finalize_block(proposed_block, voting_result).await?;
 
-        // Update metrics
         let duration = start_time.elapsed().as_millis() as u64;
         let mut metrics = self.metrics.write().await;
         metrics.total_epochs += 1;
@@ -314,7 +300,6 @@ impl ProofOfEmotionEngine {
         for validator_ref in self.validators.iter() {
             let validator = validator_ref.value();
             
-            // Simulate biometric data collection
             let simulator = BiometricSimulator::new(
                 format!("device_{}", validator.id()),
                 validator.id()
@@ -335,16 +320,14 @@ impl ProofOfEmotionEngine {
     /// Phase 2: Select committee
     async fn select_committee(&self, eligible: &[Arc<EmotionalValidator>]) -> Result<Vec<Arc<EmotionalValidator>>> {
         if eligible.len() < self.config.committee_size {
-            // Use all eligible validators if less than committee size
             return Ok(eligible.to_vec());
         }
 
-        // Sort by emotional score * stake weight
         let mut scored: Vec<_> = eligible
             .iter()
             .map(|v| {
                 let score = v.get_emotional_score() as f64;
-                let stake_weight = (v.get_stake() as f64).sqrt(); // Square root to reduce whale dominance
+                let stake_weight = (v.get_stake() as f64).sqrt();
                 let reputation = v.get_reputation() as f64 / 100.0;
                 let combined_score = score * stake_weight * reputation;
                 (Arc::clone(v), combined_score)
@@ -353,7 +336,6 @@ impl ProofOfEmotionEngine {
 
         scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
 
-        // Take top validators
         Ok(scored.into_iter().take(self.config.committee_size).map(|(v, _)| v).collect())
     }
 
@@ -362,12 +344,10 @@ impl ProofOfEmotionEngine {
         let primary = committee.first()
             .ok_or_else(|| ConsensusError::committee_selection_failed("Empty committee"))?;
 
-        // Get pending transactions
         let pending_txs = self.pending_transactions.lock().await;
         let transactions: Vec<_> = pending_txs.iter().take(1000).cloned().collect();
         drop(pending_txs);
 
-        // Get last block height
         let last_height = self.finalized_blocks.read().await.len() as u64;
         let previous_hash = if last_height > 0 {
             self.finalized_blocks.read().await.last().unwrap().hash.clone()
@@ -401,7 +381,7 @@ impl ProofOfEmotionEngine {
                 validator.id().to_string(),
                 block.hash.clone(),
                 validator.get_emotional_score(),
-                true, // Simplified - always approve for now
+                true,
             );
 
             if vote.approved {
@@ -432,7 +412,6 @@ impl ProofOfEmotionEngine {
 
     /// Phase 5: Finalize block
     async fn finalize_block(&self, mut block: Block, voting_result: VotingResult) -> Result<()> {
-        // Add consensus metadata
         block.consensus_metadata = Some(crate::types::ConsensusMetadata {
             participant_count: voting_result.participant_count,
             consensus_strength: voting_result.consensus_strength,
@@ -445,18 +424,15 @@ impl ProofOfEmotionEngine {
             participants: voting_result.participants,
         });
 
-        // Store block
         let mut blocks = self.finalized_blocks.write().await;
         blocks.push(block.clone());
 
-        // Update state
         let mut state = self.state.write().await;
         state.last_finalized_height = block.header.height;
         state.consensus_strength = voting_result.consensus_strength;
         state.emotional_fitness = voting_result.average_emotional_score;
         state.participation_rate = ((voting_result.participant_count as f64 / self.validators.len() as f64) * 100.0) as u8;
 
-        // Remove finalized transactions from pending
         let mut pending = self.pending_transactions.lock().await;
         let finalized_hashes: std::collections::HashSet<_> = 
             block.transactions.iter().map(|tx| tx.hash.clone()).collect();

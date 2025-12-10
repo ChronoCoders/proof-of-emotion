@@ -236,16 +236,15 @@ impl EmotionalStaking {
 
         let severity = Self::determine_severity(offense, &evidence);
         let slashing_rate = match severity {
-            SlashingSeverity::Minor => 0.01,   // 1%
-            SlashingSeverity::Major => 0.05,   // 5%
-            SlashingSeverity::Critical => 0.15, // 15%
+            SlashingSeverity::Minor => 0.01,
+            SlashingSeverity::Major => 0.05,
+            SlashingSeverity::Critical => 0.15,
         };
 
         let slash_amount = (validator.stake as f64 * slashing_rate) as u64;
         validator.stake = validator.stake.saturating_sub(slash_amount);
         validator.total_penalties += slash_amount;
 
-        // Reduce reputation
         let reputation_penalty = match severity {
             SlashingSeverity::Minor => 5,
             SlashingSeverity::Major => 10,
@@ -253,16 +252,14 @@ impl EmotionalStaking {
         };
         validator.reputation = validator.reputation.saturating_sub(reputation_penalty);
 
-        // Deactivate if stake too low
         if validator.stake < self.min_stake {
             validator.is_active = false;
         }
 
         drop(validators);
 
-        // Record slashing event
         let event = SlashingEvent {
-            id: uuid::Uuid::new_v4().to_string(),
+            id: uuid::Uuid::new_v4().as_string(),
             validator_id: validator_id.to_string(),
             offense,
             severity,
@@ -285,11 +282,10 @@ impl EmotionalStaking {
             *current
         };
 
-        let base_reward_pool = 100_000; // 100k POE per epoch
+        let base_reward_pool = 100_000;
         let mut validator_rewards = HashMap::new();
         let mut delegator_rewards = HashMap::new();
 
-        // Calculate total stake weight
         let validators = self.validators.read();
         let total_stake_weight: f64 = validators
             .values()
@@ -297,18 +293,15 @@ impl EmotionalStaking {
             .map(|v| (v.stake as f64).sqrt())
             .sum();
 
-        // Distribute rewards
         for (validator_id, emotional_score) in validator_scores {
             if let Some(validator) = validators.get(&validator_id) {
                 if !validator.is_active {
                     continue;
                 }
 
-                // Calculate base reward based on stake weight
                 let stake_weight = (validator.stake as f64).sqrt();
                 let base_reward = ((stake_weight / total_stake_weight) * base_reward_pool as f64) as u64;
 
-                // Apply emotional multiplier
                 let emotional_multiplier = if emotional_score >= 75 {
                     1.0 + ((emotional_score - 75) as f64 / 100.0) * 0.3
                 } else {
@@ -317,11 +310,9 @@ impl EmotionalStaking {
 
                 let total_reward = (base_reward as f64 * emotional_multiplier) as u64;
 
-                // Validator commission
                 let commission_amount = (total_reward * validator.commission as u64) / 100;
                 validator_rewards.insert(validator_id.clone(), commission_amount);
 
-                // Distribute to delegators
                 let delegator_reward = total_reward - commission_amount;
                 delegator_rewards.insert(validator_id, delegator_reward);
             }
@@ -381,14 +372,13 @@ impl EmotionalStaking {
     }
 }
 
-// Add uuid dependency for generating IDs
 mod uuid {
     pub struct Uuid;
     impl Uuid {
         pub fn new_v4() -> Self {
             Self
         }
-        pub fn to_string(&self) -> String {
+        pub fn as_string(&self) -> String {
             use rand::Rng;
             let mut rng = rand::thread_rng();
             format!(
@@ -451,7 +441,7 @@ mod tests {
             "validator-1".to_string(),
             "delegator1".to_string(),
             5_000,
-            21 * 24 * 60 * 60, // 21 days
+            21 * 24 * 60 * 60,
         );
         
         assert!(result.is_ok());
@@ -477,6 +467,6 @@ mod tests {
         assert!(result.is_ok());
         
         let validator = staking.get_validator("validator-1").unwrap();
-        assert!(validator.stake < 10_000); // Stake reduced
+        assert!(validator.stake < 10_000);
     }
 }

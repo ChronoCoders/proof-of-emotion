@@ -176,7 +176,7 @@ impl Block {
         hasher.update(header.merkle_root.as_bytes());
         hasher.update(header.timestamp.to_le_bytes());
         hasher.update(header.validator_id.as_bytes());
-        hasher.update(&[header.emotional_score]);
+        hasher.update([header.emotional_score]);
         
         for tx in transactions {
             hasher.update(tx.hash.as_bytes());
@@ -205,7 +205,7 @@ impl Block {
                 if chunk.len() > 1 {
                     hasher.update(&chunk[1]);
                 } else {
-                    hasher.update(&chunk[0]); // Duplicate if odd number
+                    hasher.update(&chunk[0]);
                 }
                 next_level.push(hasher.finalize().to_vec());
             }
@@ -374,7 +374,7 @@ mod tests {
         let root1 = Block::calculate_merkle_root(&txs);
         let root2 = Block::calculate_merkle_root(&txs);
         
-        assert_eq!(root1, root2); // Deterministic
+        assert_eq!(root1, root2);
         assert!(!root1.is_empty());
     }
 
