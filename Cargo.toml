@@ -1,0 +1,75 @@
+[package]
+name = "proof-of-emotion"
+version = "1.0.0"
+edition = "2021"
+authors = ["ChronoCoders"]
+description = "Proof of Emotion (POE) - Byzantine fault-tolerant consensus with biometric validation"
+license = "MIT"
+repository = "https://github.com/ChronoCoders/proof-of-emotion"
+keywords = ["blockchain", "consensus", "poe", "biometric", "byzantine-fault-tolerance"]
+categories = ["cryptography", "algorithms"]
+
+[dependencies]
+# Async runtime
+tokio = { version = "1.35", features = ["full"] }
+async-trait = "0.1"
+futures = "0.3"
+
+# Cryptography
+secp256k1 = { version = "0.28", features = ["rand", "recovery"] }
+sha2 = "0.10"
+sha3 = "0.10"
+rand = "0.8"
+hex = "0.4"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+bincode = "1.3"
+
+# Data structures
+dashmap = "5.5"
+lru = "0.12"
+
+# Time and performance
+chrono = { version = "0.4", features = ["serde"] }
+instant = "0.1"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Error handling
+thiserror = "1.0"
+anyhow = "1.0"
+
+# Utilities
+parking_lot = "0.12"
+crossbeam = "0.8"
+once_cell = "1.19"
+
+# Networking (optional - for P2P integration)
+libp2p = { version = "0.53", optional = true }
+
+# Database (optional - for storage integration)
+sled = { version = "0.34", optional = true }
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["async_tokio"] }
+proptest = "1.4"
+quickcheck = "1.0"
+tokio-test = "0.4"
+
+[features]
+default = ["networking", "storage"]
+networking = ["libp2p"]
+storage = ["sled"]
+benchmarks = []
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+
+[profile.bench]
+inherits = "release"
