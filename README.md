@@ -1,11 +1,5 @@
 # Proof of Emotion (POE) Consensus
 
-[![Rust CI](https://github.com/ChronoCoders/proof-of-emotion/workflows/Rust%20CI/badge.svg)](https://github.com/ChronoCoders/proof-of-emotion/actions)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Rust Version](https://img.shields.io/badge/rust-1.91%2B-orange.svg)](https://www.rust-lang.org)
-
-> Byzantine Fault-Tolerant Consensus with Real-Time Biometric Validation
-
 ## Overview
 
 Proof of Emotion is a next-generation consensus mechanism that combines traditional Byzantine Fault Tolerance with real-time biometric validation and emotional state verification. By requiring validators to maintain authentic emotional responses during consensus participation, POE creates a unique blend of cryptographic security and human authenticity.
@@ -39,24 +33,24 @@ cargo run --example staking_rewards
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────┐
-│         Proof of Emotion Engine             │
-├─────────────────────────────────────────────┤
+┌────────────────────────────────────────────┐
+│         Proof of Emotion Engine            │
+├────────────────────────────────────────────┤
 │  ┌──────────────┐  ┌──────────────────┐    │
 │  │  Biometric   │  │    Consensus     │    │
 │  │  Validation  │──│     Protocol     │    │
 │  └──────────────┘  └──────────────────┘    │
-│         │                   │               │
+│         │                   │              │
 │  ┌──────────────┐  ┌──────────────────┐    │
 │  │  Emotional   │  │  Cryptographic   │    │
 │  │   Scoring    │──│    Security      │    │
 │  └──────────────┘  └──────────────────┘    │
-│         │                   │               │
+│         │                   │              │
 │  ┌─────────────────────────────────────┐   │
 │  │      Economic Incentives Layer      │   │
 │  │  (Staking, Rewards, Slashing)       │   │
 │  └─────────────────────────────────────┘   │
-└─────────────────────────────────────────────┘
+└────────────────────────────────────────────┘
 ```
 
 ## Core Components
