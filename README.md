@@ -39,9 +39,9 @@ cargo run --example staking_rewards
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────┐
-│         Proof of Emotion Engine             │
-├─────────────────────────────────────────────┤
+┌────────────────────────────────────────────┐
+│         Proof of Emotion Engine            │
+├────────────────────────────────────────────┤
 │  ┌──────────────┐  ┌──────────────────┐    │
 │  │  Biometric   │  │    Consensus     │    │
 │  │  Validation  │──│     Protocol     │    │
