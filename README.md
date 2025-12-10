@@ -1,6 +1,6 @@
 # Proof of Emotion (POE) Consensus
 
-[![Rust CI](https://github.com/YOUR_USERNAME/proof-of-emotion/workflows/Rust%20CI/badge.svg)](https://github.com/YOUR_USERNAME/proof-of-emotion/actions)
+[![Rust CI](https://github.com/ChronoCoders/proof-of-emotion/workflows/Rust%20CI/badge.svg)](https://github.com/ChronoCoders/proof-of-emotion/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Rust Version](https://img.shields.io/badge/rust-1.91%2B-orange.svg)](https://www.rust-lang.org)
 
@@ -24,7 +24,7 @@ Proof of Emotion is a next-generation consensus mechanism that combines traditio
 
 ```bash
 # Clone the repository
-git clone https://github.com/YOUR_USERNAME/proof-of-emotion.git
+git clone https://github.com/ChronoCoders/proof-of-emotion.git
 cd proof-of-emotion
 
 # Run tests
@@ -109,7 +109,7 @@ cargo run --example staking_rewards
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
 # Clone and build
-git clone https://github.com/YOUR_USERNAME/proof-of-emotion.git
+git clone https://github.com/ChronoCoders/proof-of-emotion.git
 cd proof-of-emotion
 cargo build --release
 ```
@@ -281,8 +281,8 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## Contact
 
-- GitHub Issues: [Report bugs or request features](https://github.com/YOUR_USERNAME/proof-of-emotion/issues)
-- Discussions: [Join the conversation](https://github.com/YOUR_USERNAME/proof-of-emotion/discussions)
+- GitHub Issues: [Report bugs or request features](https://github.com/ChronoCoders/proof-of-emotion/issues)
+- Discussions: [Join the conversation](https://github.com/ChronoCoders/proof-of-emotion/discussions)
 
 ---
 
