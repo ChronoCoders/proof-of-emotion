@@ -201,7 +201,7 @@ async fn test_emotional_threshold_enforcement() {
     validator.update_emotional_state(readings).await.unwrap();
 
     // Eligibility depends on actual score (which varies with simulation)
-    // Just verify the check works
-    let eligible = validator.is_eligible(50, 10_000);
-    assert!(eligible || !eligible); // Score-dependent
+    // Score should be > 0 after biometric update
+    let score = validator.get_emotional_score();
+    assert!(score > 0, "Emotional score should be > 0 after update");
 }

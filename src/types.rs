@@ -379,7 +379,7 @@ mod tests {
             true,
         );
 
-        assert_eq!(vote.approved, true);
+        assert!(vote.approved);
         assert_eq!(vote.emotional_score, 85);
     }
 }
