@@ -52,7 +52,7 @@ impl KeyPair {
     pub fn generate() -> Result<Self> {
         let secp = Secp256k1::new();
         let (secret_key, public_key) = secp.generate_keypair(&mut rand::thread_rng());
-        
+
         Ok(Self {
             secret_key,
             public_key,
@@ -63,10 +63,10 @@ impl KeyPair {
     pub fn from_secret_bytes(bytes: &[u8]) -> Result<Self> {
         let secret_key = SecretKey::from_slice(bytes)
             .map_err(|e| ConsensusError::internal(format!("Invalid secret key: {}", e)))?;
-        
+
         let secp = Secp256k1::new();
         let public_key = PublicKey::from_secret_key(&secp, &secret_key);
-        
+
         Ok(Self {
             secret_key,
             public_key,
@@ -103,7 +103,7 @@ impl KeyPair {
     /// Verify a signature
     pub fn verify(message: &[u8], signature: &Signature, public_key_hex: &str) -> Result<bool> {
         let secp = Secp256k1::new();
-        
+
         let public_key_bytes = hex::decode(public_key_hex)
             .map_err(|e| ConsensusError::internal(format!("Invalid public key hex: {}", e)))?;
         let public_key = PublicKey::from_slice(&public_key_bytes)
@@ -120,8 +120,11 @@ impl KeyPair {
         let message = Message::from_digest_slice(&message_hash)
             .map_err(|e| ConsensusError::internal(format!("Invalid message: {}", e)))?;
 
-        let recovered_key = secp.recover_ecdsa(&message, &recoverable_sig)
-            .map_err(|e| ConsensusError::signature_verification_failed(format!("Recovery failed: {}", e)))?;
+        let recovered_key = secp
+            .recover_ecdsa(&message, &recoverable_sig)
+            .map_err(|e| {
+                ConsensusError::signature_verification_failed(format!("Recovery failed: {}", e))
+            })?;
 
         Ok(recovered_key == public_key)
     }
@@ -187,17 +190,18 @@ impl EmotionalProof {
 
         let sum: u32 = scores.values().map(|&s| s as u32).sum();
         let avg = sum / scores.len() as u32;
-        
+
         let variance: f64 = scores
             .values()
             .map(|&s| {
                 let diff = s as f64 - avg as f64;
                 diff * diff
             })
-            .sum::<f64>() / scores.len() as f64;
+            .sum::<f64>()
+            / scores.len() as f64;
 
         let variance_penalty = (variance.sqrt() / 5.0).min(20.0);
-        
+
         (avg as f64 - variance_penalty).clamp(0.0, 100.0) as u8
     }
 
@@ -210,7 +214,7 @@ impl EmotionalProof {
         timestamp: u64,
     ) -> String {
         let mut hasher = Sha256::new();
-        
+
         for validator in validators {
             hasher.update(validator.as_bytes());
         }
@@ -218,7 +222,7 @@ impl EmotionalProof {
         hasher.update(serde_json::to_string(biometric_hashes).unwrap().as_bytes());
         hasher.update(temporal_window.to_le_bytes());
         hasher.update(timestamp.to_le_bytes());
-        
+
         hex::encode(hasher.finalize())
     }
 
@@ -233,11 +237,8 @@ impl EmotionalProof {
             self.timestamp
         );
 
-        let signature_valid = KeyPair::verify(
-            proof_data.as_bytes(),
-            &self.signature,
-            public_key_hex,
-        )?;
+        let signature_valid =
+            KeyPair::verify(proof_data.as_bytes(), &self.signature, public_key_hex)?;
 
         if !signature_valid {
             return Ok(false);
@@ -293,10 +294,10 @@ mod tests {
     fn test_signing_and_verification() {
         let keypair = KeyPair::generate().unwrap();
         let message = b"test message";
-        
+
         let signature = keypair.sign(message).unwrap();
         let valid = KeyPair::verify(message, &signature, &keypair.public_key_hex()).unwrap();
-        
+
         assert!(valid);
     }
 
@@ -305,10 +306,10 @@ mod tests {
         let keypair1 = KeyPair::generate().unwrap();
         let keypair2 = KeyPair::generate().unwrap();
         let message = b"test message";
-        
+
         let signature = keypair1.sign(message).unwrap();
         let valid = KeyPair::verify(message, &signature, &keypair2.public_key_hex()).unwrap();
-        
+
         assert!(!valid);
     }
 
@@ -318,19 +319,20 @@ mod tests {
         let mut scores = std::collections::HashMap::new();
         scores.insert("validator1".to_string(), 85);
         scores.insert("validator2".to_string(), 90);
-        
+
         let mut hashes = std::collections::HashMap::new();
         hashes.insert("validator1".to_string(), "hash1".to_string());
         hashes.insert("validator2".to_string(), "hash2".to_string());
-        
+
         let proof = EmotionalProof::new(
             vec!["validator1".to_string(), "validator2".to_string()],
             scores,
             hashes,
             30000,
             &keypair,
-        ).unwrap();
-        
+        )
+        .unwrap();
+
         assert!(proof.verify(&keypair.public_key_hex()).unwrap());
     }
 
@@ -340,7 +342,7 @@ mod tests {
         scores.insert("v1".to_string(), 85);
         scores.insert("v2".to_string(), 87);
         scores.insert("v3".to_string(), 83);
-        
+
         let strength = EmotionalProof::calculate_consensus_strength(&scores);
         assert!(strength > 80);
     }

@@ -6,11 +6,11 @@ pub mod staking;
 pub mod types;
 pub mod utils;
 
-pub use consensus::{
-    ConsensusConfig, ConsensusMetrics, ConsensusRound, ConsensusState, 
-    ProofOfEmotionEngine, RoundPhase
-};
 pub use biometric::{BiometricDevice, BiometricReading, EmotionalProfile, EmotionalValidator};
+pub use consensus::{
+    ConsensusConfig, ConsensusMetrics, ConsensusRound, ConsensusState, ProofOfEmotionEngine,
+    RoundPhase,
+};
 pub use crypto::{EmotionalProof, KeyPair, Signature};
 pub use error::{ConsensusError, Result};
 pub use staking::{EmotionalStaking, RewardDistribution, SlashingEvent, Validator};

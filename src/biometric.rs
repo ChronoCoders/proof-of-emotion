@@ -2,10 +2,10 @@
 
 use crate::crypto::KeyPair;
 use crate::error::{ConsensusError, Result};
+use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use std::sync::Arc;
-use parking_lot::RwLock;
 
 /// Type of biometric reading
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
@@ -69,10 +69,10 @@ pub enum EmotionalTrend {
 pub trait BiometricDevice: Send + Sync {
     /// Collect biometric readings
     fn collect_readings(&self) -> Result<Vec<BiometricReading>>;
-    
+
     /// Get device ID
     fn device_id(&self) -> &str;
-    
+
     /// Check if device is functioning
     fn is_healthy(&self) -> bool;
 }
@@ -101,7 +101,7 @@ impl EmotionalValidator {
     /// Create a new emotional validator
     pub fn new(id: impl Into<String>, stake: u64) -> Result<Self> {
         let key_pair = KeyPair::generate()?;
-        
+
         Ok(Self {
             id: id.into(),
             key_pair,
@@ -132,7 +132,7 @@ impl EmotionalValidator {
     pub async fn update_emotional_state(&self, readings: Vec<BiometricReading>) -> Result<()> {
         if readings.is_empty() {
             return Err(ConsensusError::biometric_validation_failed(
-                "No biometric readings provided"
+                "No biometric readings provided",
             ));
         }
 
@@ -200,7 +200,7 @@ impl EmotionalValidator {
 
         if total_weight == 0.0 {
             return Err(ConsensusError::biometric_validation_failed(
-                "No valid readings with quality > 0"
+                "No valid readings with quality > 0",
             ));
         }
 
@@ -211,17 +211,21 @@ impl EmotionalValidator {
     /// Analyze trend in emotional scores
     fn analyze_trend(&self, _current_score: u8) -> EmotionalTrend {
         let history = self.score_history.read();
-        
+
         if history.len() < 3 {
             return EmotionalTrend::Stable;
         }
 
         let recent: Vec<_> = history.iter().rev().take(5).map(|(s, _)| *s).collect();
-        
+
         let n = recent.len() as f64;
         let sum_x: f64 = (0..recent.len()).map(|i| i as f64).sum();
         let sum_y: f64 = recent.iter().map(|&s| s as f64).sum();
-        let sum_xy: f64 = recent.iter().enumerate().map(|(i, &s)| i as f64 * s as f64).sum();
+        let sum_xy: f64 = recent
+            .iter()
+            .enumerate()
+            .map(|(i, &s)| i as f64 * s as f64)
+            .sum();
         let sum_xx: f64 = (0..recent.len()).map(|i| (i * i) as f64).sum();
 
         let slope = (n * sum_xy - sum_x * sum_y) / (n * sum_xx - sum_x * sum_x);
@@ -244,13 +248,19 @@ impl EmotionalValidator {
         let avg_quality = readings.iter().map(|r| r.quality).sum::<f64>() / readings.len() as f64;
         let quality_score = (avg_quality * 100.0) as u8;
 
-        let unique_types: std::collections::HashSet<_> = 
+        let unique_types: std::collections::HashSet<_> =
             readings.iter().map(|r| &r.biometric_type).collect();
         let multimodal_bonus = (unique_types.len() * 5).min(20) as u8;
 
         let timestamps: Vec<_> = readings.iter().map(|r| r.timestamp).collect();
         let time_span = timestamps.iter().max().unwrap() - timestamps.iter().min().unwrap();
-        let temporal_bonus = if time_span < 5000 { 10 } else if time_span < 60000 { 5 } else { 0 };
+        let temporal_bonus = if time_span < 5000 {
+            10
+        } else if time_span < 60000 {
+            5
+        } else {
+            0
+        };
 
         (quality_score + multimodal_bonus + temporal_bonus).min(100)
     }
@@ -286,7 +296,7 @@ impl EmotionalValidator {
     pub fn apply_slashing(&self, amount: u64) {
         let mut stake = self.stake.write();
         *stake = stake.saturating_sub(amount);
-        
+
         let mut reputation = self.reputation.write();
         let penalty = ((amount as f64 / *stake as f64) * 10.0).min(20.0) as u8;
         *reputation = reputation.saturating_sub(penalty);
@@ -316,6 +326,82 @@ impl EmotionalValidator {
     pub fn get_reputation(&self) -> u8 {
         *self.reputation.read()
     }
+
+    /// Validate a block proposal
+    ///
+    /// Performs comprehensive validation including:
+    /// - Block hash verification
+    /// - Previous hash validation
+    /// - Block height sequence check
+    /// - Transaction hash verification
+    /// - Merkle root validation
+    /// - Timestamp reasonableness check
+    pub fn validate_block(
+        &self,
+        block: &crate::types::Block,
+        expected_previous_hash: &str,
+        expected_height: u64,
+    ) -> std::result::Result<(), String> {
+        // 1. Verify block hash matches content
+        if !block.verify_hash() {
+            return Err("Block hash does not match content".to_string());
+        }
+
+        // 2. Verify previous hash
+        if block.header.previous_hash != expected_previous_hash {
+            return Err(format!(
+                "Previous hash mismatch: expected {}, got {}",
+                expected_previous_hash, block.header.previous_hash
+            ));
+        }
+
+        // 3. Verify block height is sequential
+        if block.header.height != expected_height {
+            return Err(format!(
+                "Block height mismatch: expected {}, got {}",
+                expected_height, block.header.height
+            ));
+        }
+
+        // 4. Verify all transaction hashes
+        for (i, tx) in block.transactions.iter().enumerate() {
+            if !tx.verify_hash() {
+                return Err(format!("Transaction {} has invalid hash", i));
+            }
+        }
+
+        // 5. Verify merkle root
+        let calculated_merkle = crate::types::Block::calculate_merkle_root(&block.transactions);
+        if calculated_merkle != block.header.merkle_root {
+            return Err(format!(
+                "Merkle root mismatch: expected {}, got {}",
+                calculated_merkle, block.header.merkle_root
+            ));
+        }
+
+        // 6. Verify timestamp is reasonable (not in future, not too old)
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64;
+
+        // Block timestamp should not be more than 5 seconds in the future
+        if block.header.timestamp > now + 5000 {
+            return Err("Block timestamp is too far in the future".to_string());
+        }
+
+        // Block timestamp should not be more than 1 hour old
+        if block.header.timestamp < now.saturating_sub(3600000) {
+            return Err("Block timestamp is too old (>1 hour)".to_string());
+        }
+
+        // 7. Verify proposer is in the validator ID field
+        if block.header.validator_id.is_empty() {
+            return Err("Block has no validator ID".to_string());
+        }
+
+        Ok(())
+    }
 }
 
 /// Production-quality biometric simulator for testing
@@ -340,34 +426,45 @@ impl BiometricSimulator {
     /// Generate realistic heart rate
     fn generate_heart_rate(&self, timestamp: u64) -> f64 {
         let baseline = 60.0 + (self.validator_seed % 25) as f64;
-        let time_of_day = (timestamp % (24 * 60 * 60 * 1000)) as f64 / (24.0 * 60.0 * 60.0 * 1000.0);
-        
-        let circadian_factor = 1.0 + 0.15 * (2.0 * std::f64::consts::PI * (time_of_day - 0.25)).sin();
-        let stress_variation = 0.9 + 0.2 * ((self.validator_seed as f64 + timestamp as f64 / 300000.0).sin());
-        
+        let time_of_day =
+            (timestamp % (24 * 60 * 60 * 1000)) as f64 / (24.0 * 60.0 * 60.0 * 1000.0);
+
+        let circadian_factor =
+            1.0 + 0.15 * (2.0 * std::f64::consts::PI * (time_of_day - 0.25)).sin();
+        let stress_variation =
+            0.9 + 0.2 * ((self.validator_seed as f64 + timestamp as f64 / 300000.0).sin());
+
         baseline * circadian_factor * stress_variation
     }
 
     /// Generate realistic stress level
     fn generate_stress_level(&self, timestamp: u64) -> f64 {
         let base_stress = (self.validator_seed % 40) as f64;
-        let time_of_day = (timestamp % (24 * 60 * 60 * 1000)) as f64 / (24.0 * 60.0 * 60.0 * 1000.0);
-        
-        let work_factor = if (0.375..=0.75).contains(&time_of_day) { 1.3 } else { 0.8 };
-        
+        let time_of_day =
+            (timestamp % (24 * 60 * 60 * 1000)) as f64 / (24.0 * 60.0 * 60.0 * 1000.0);
+
+        let work_factor = if (0.375..=0.75).contains(&time_of_day) {
+            1.3
+        } else {
+            0.8
+        };
+
         (base_stress * work_factor).min(100.0)
     }
 
     /// Generate realistic focus level
     fn generate_focus_level(&self, timestamp: u64) -> f64 {
         let base_focus = 60.0 + ((self.validator_seed % 30) as f64);
-        let time_of_day = (timestamp % (24 * 60 * 60 * 1000)) as f64 / (24.0 * 60.0 * 60.0 * 1000.0);
-        
-        let circadian_focus = 0.7 + 0.3 * f64::max(
-            (2.0 * std::f64::consts::PI * (time_of_day - 0.25)).sin(),
-            (2.0 * std::f64::consts::PI * (time_of_day - 0.7)).sin(),
-        );
-        
+        let time_of_day =
+            (timestamp % (24 * 60 * 60 * 1000)) as f64 / (24.0 * 60.0 * 60.0 * 1000.0);
+
+        let circadian_focus = 0.7
+            + 0.3
+                * f64::max(
+                    (2.0 * std::f64::consts::PI * (time_of_day - 0.25)).sin(),
+                    (2.0 * std::f64::consts::PI * (time_of_day - 0.7)).sin(),
+                );
+
         (base_focus * circadian_focus).min(100.0)
     }
 }
@@ -431,10 +528,10 @@ mod tests {
     async fn test_emotional_state_update() {
         let validator = EmotionalValidator::new("test-validator", 10000).unwrap();
         let simulator = BiometricSimulator::new("device1".to_string(), "test-validator");
-        
+
         let readings = simulator.collect_readings().unwrap();
         validator.update_emotional_state(readings).await.unwrap();
-        
+
         let score = validator.get_emotional_score();
         assert!(score > 0);
         assert!(score <= 100);
@@ -444,10 +541,10 @@ mod tests {
     async fn test_eligibility_check() {
         let validator = EmotionalValidator::new("test-validator", 10000).unwrap();
         let simulator = BiometricSimulator::new("device1".to_string(), "test-validator");
-        
+
         let readings = simulator.collect_readings().unwrap();
         validator.update_emotional_state(readings).await.unwrap();
-        
+
         assert!(validator.is_eligible(50, 10000));
     }
 
@@ -455,7 +552,7 @@ mod tests {
     fn test_biometric_simulator() {
         let simulator = BiometricSimulator::new("device1".to_string(), "validator-123");
         let readings = simulator.collect_readings().unwrap();
-        
+
         assert_eq!(readings.len(), 3);
         assert!(readings.iter().all(|r| r.quality > 0.0 && r.quality <= 1.0));
     }

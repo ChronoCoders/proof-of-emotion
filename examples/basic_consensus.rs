@@ -6,9 +6,7 @@
 //! - Starting consensus
 //! - Monitoring state and metrics
 
-use proof_of_emotion::{
-    ConsensusConfig, EmotionalValidator, ProofOfEmotionEngine,
-};
+use proof_of_emotion::{ConsensusConfig, EmotionalValidator, ProofOfEmotionEngine};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::time;
@@ -24,11 +22,11 @@ async fn main() -> anyhow::Result<()> {
 
     // Create consensus configuration
     let config = ConsensusConfig {
-        epoch_duration: 30_000,      // 30 second epochs
-        emotional_threshold: 75,      // 75% minimum emotional fitness
-        byzantine_threshold: 67,      // 67% BFT requirement
-        committee_size: 5,            // 5 validators for this example
-        minimum_stake: 10_000,        // 10,000 POE minimum
+        epoch_duration: 30_000,  // 30 second epochs
+        emotional_threshold: 75, // 75% minimum emotional fitness
+        byzantine_threshold: 67, // 67% BFT requirement
+        committee_size: 5,       // 5 validators for this example
+        minimum_stake: 10_000,   // 10,000 POE minimum
         voting_timeout: 8_000,
         proposal_timeout: 10_000,
         finality_timeout: 2_000,
@@ -47,7 +45,7 @@ async fn main() -> anyhow::Result<()> {
 
     // Register validators
     println!("👥 Registering validators...");
-    
+
     let validators = vec![
         ("Alice", 10_000),
         ("Bob", 15_000),
@@ -70,7 +68,7 @@ async fn main() -> anyhow::Result<()> {
 
     // Monitor consensus for 3 epochs
     println!("📈 Monitoring consensus (90 seconds)...\n");
-    
+
     for i in 1..=3 {
         time::sleep(Duration::from_secs(30)).await;
 
@@ -108,7 +106,10 @@ async fn main() -> anyhow::Result<()> {
         println!("   Hash: {}...", &block.hash[..16]);
         println!("   Validator: {}", block.header.validator_id);
         println!("   Emotional Score: {}%", block.header.emotional_score);
-        println!("   Consensus Strength: {}%", block.header.consensus_strength);
+        println!(
+            "   Consensus Strength: {}%",
+            block.header.consensus_strength
+        );
         println!("   Transactions: {}", block.transactions.len());
     }
 
