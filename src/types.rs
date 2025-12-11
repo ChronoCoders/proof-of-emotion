@@ -9,6 +9,8 @@ use std::fmt;
 pub struct BlockHeader {
     /// Block height
     pub height: u64,
+    /// Epoch number (for replay attack prevention)
+    pub epoch: u64,
     /// Hash of previous block
     pub previous_hash: String,
     /// Merkle root of transactions
@@ -93,6 +95,10 @@ pub struct Vote {
     pub validator_id: String,
     /// Block hash being voted on
     pub block_hash: String,
+    /// Epoch number (for replay attack prevention)
+    pub epoch: u64,
+    /// Round number within epoch
+    pub round: u32,
     /// Emotional score of validator at vote time
     pub emotional_score: u8,
     /// Vote signature
@@ -130,6 +136,7 @@ impl Block {
     /// Create a new block
     pub fn new(
         height: u64,
+        epoch: u64,
         previous_hash: String,
         validator_id: String,
         emotional_score: u8,
@@ -144,6 +151,7 @@ impl Block {
 
         let header = BlockHeader {
             height,
+            epoch,
             previous_hash,
             merkle_root,
             timestamp,
@@ -172,6 +180,7 @@ impl Block {
         let mut hasher = Sha256::new();
 
         hasher.update(header.height.to_le_bytes());
+        hasher.update(header.epoch.to_le_bytes());
         hasher.update(header.previous_hash.as_bytes());
         hasher.update(header.merkle_root.as_bytes());
         hasher.update(header.timestamp.to_le_bytes());
@@ -226,6 +235,76 @@ impl Block {
     pub fn size(&self) -> usize {
         bincode::serialize(self).map(|b| b.len()).unwrap_or(0)
     }
+
+    /// Sign the block with a key pair
+    pub fn sign(&mut self, key_pair: &crate::crypto::KeyPair) -> Result<(), String> {
+        // Serialize the data to be signed (header + transactions)
+        let mut data_to_sign = Vec::new();
+
+        // Include all header fields
+        data_to_sign.extend_from_slice(&self.header.height.to_le_bytes());
+        data_to_sign.extend_from_slice(&self.header.epoch.to_le_bytes());
+        data_to_sign.extend_from_slice(self.header.previous_hash.as_bytes());
+        data_to_sign.extend_from_slice(self.header.merkle_root.as_bytes());
+        data_to_sign.extend_from_slice(&self.header.timestamp.to_le_bytes());
+        data_to_sign.extend_from_slice(self.header.validator_id.as_bytes());
+        data_to_sign.push(self.header.emotional_score);
+
+        // Include block hash
+        data_to_sign.extend_from_slice(self.hash.as_bytes());
+
+        // Include all transaction hashes
+        for tx in &self.transactions {
+            data_to_sign.extend_from_slice(tx.hash.as_bytes());
+        }
+
+        // Sign the data
+        let sig = key_pair
+            .sign(&data_to_sign)
+            .map_err(|e| format!("Failed to sign block: {}", e))?;
+
+        // Serialize signature to JSON string
+        self.signature = serde_json::to_string(&sig)
+            .map_err(|e| format!("Failed to serialize signature: {}", e))?;
+        self.proposer_public_key = key_pair.public_key_hex();
+
+        Ok(())
+    }
+
+    /// Verify the block signature
+    pub fn verify_signature(&self) -> Result<bool, String> {
+        if self.signature.is_empty() {
+            return Err("Block has no signature".to_string());
+        }
+
+        if self.proposer_public_key.is_empty() {
+            return Err("Block has no public key".to_string());
+        }
+
+        // Deserialize signature from JSON
+        let sig: crate::crypto::Signature = serde_json::from_str(&self.signature)
+            .map_err(|e| format!("Failed to deserialize signature: {}", e))?;
+
+        // Reconstruct the signed data
+        let mut data_to_verify = Vec::new();
+
+        data_to_verify.extend_from_slice(&self.header.height.to_le_bytes());
+        data_to_verify.extend_from_slice(&self.header.epoch.to_le_bytes());
+        data_to_verify.extend_from_slice(self.header.previous_hash.as_bytes());
+        data_to_verify.extend_from_slice(self.header.merkle_root.as_bytes());
+        data_to_verify.extend_from_slice(&self.header.timestamp.to_le_bytes());
+        data_to_verify.extend_from_slice(self.header.validator_id.as_bytes());
+        data_to_verify.push(self.header.emotional_score);
+        data_to_verify.extend_from_slice(self.hash.as_bytes());
+
+        for tx in &self.transactions {
+            data_to_verify.extend_from_slice(tx.hash.as_bytes());
+        }
+
+        // Verify signature
+        crate::crypto::KeyPair::verify(&data_to_verify, &sig, &self.proposer_public_key)
+            .map_err(|e| format!("Signature verification failed: {}", e))
+    }
 }
 
 impl Transaction {
@@ -274,6 +353,62 @@ impl Transaction {
             Self::calculate_tx_hash(&self.from, &self.to, self.amount, self.fee, self.timestamp);
         calculated_hash == self.hash
     }
+
+    /// Sign the transaction with a key pair
+    pub fn sign(&mut self, key_pair: &crate::crypto::KeyPair) -> Result<(), String> {
+        // Serialize the transaction data to be signed
+        let mut data_to_sign = Vec::new();
+
+        data_to_sign.extend_from_slice(self.hash.as_bytes());
+        data_to_sign.extend_from_slice(self.from.as_bytes());
+        data_to_sign.extend_from_slice(self.to.as_bytes());
+        data_to_sign.extend_from_slice(&self.amount.to_le_bytes());
+        data_to_sign.extend_from_slice(&self.fee.to_le_bytes());
+        data_to_sign.extend_from_slice(&self.timestamp.to_le_bytes());
+        data_to_sign.extend_from_slice(&self.data);
+
+        // Sign the data
+        let sig = key_pair
+            .sign(&data_to_sign)
+            .map_err(|e| format!("Failed to sign transaction: {}", e))?;
+
+        // Serialize signature to JSON string
+        self.signature = serde_json::to_string(&sig)
+            .map_err(|e| format!("Failed to serialize signature: {}", e))?;
+        self.public_key = key_pair.public_key_hex();
+
+        Ok(())
+    }
+
+    /// Verify the transaction signature
+    pub fn verify_signature(&self) -> Result<bool, String> {
+        if self.signature.is_empty() {
+            return Err("Transaction has no signature".to_string());
+        }
+
+        if self.public_key.is_empty() {
+            return Err("Transaction has no public key".to_string());
+        }
+
+        // Deserialize signature from JSON
+        let sig: crate::crypto::Signature = serde_json::from_str(&self.signature)
+            .map_err(|e| format!("Failed to deserialize signature: {}", e))?;
+
+        // Reconstruct the signed data
+        let mut data_to_verify = Vec::new();
+
+        data_to_verify.extend_from_slice(self.hash.as_bytes());
+        data_to_verify.extend_from_slice(self.from.as_bytes());
+        data_to_verify.extend_from_slice(self.to.as_bytes());
+        data_to_verify.extend_from_slice(&self.amount.to_le_bytes());
+        data_to_verify.extend_from_slice(&self.fee.to_le_bytes());
+        data_to_verify.extend_from_slice(&self.timestamp.to_le_bytes());
+        data_to_verify.extend_from_slice(&self.data);
+
+        // Verify signature
+        crate::crypto::KeyPair::verify(&data_to_verify, &sig, &self.public_key)
+            .map_err(|e| format!("Transaction signature verification failed: {}", e))
+    }
 }
 
 impl Vote {
@@ -281,6 +416,8 @@ impl Vote {
     pub fn new(
         validator_id: String,
         block_hash: String,
+        epoch: u64,
+        round: u32,
         emotional_score: u8,
         approved: bool,
     ) -> Self {
@@ -292,6 +429,8 @@ impl Vote {
         Self {
             validator_id,
             block_hash,
+            epoch,
+            round,
             emotional_score,
             signature: String::new(),
             timestamp,
@@ -347,7 +486,7 @@ mod tests {
             Transaction::new("addr3".to_string(), "addr4".to_string(), 2000, 20),
         ];
 
-        let block = Block::new(1, "0".repeat(64), "validator1".to_string(), 85, txs);
+        let block = Block::new(1, 0, "0".repeat(64), "validator1".to_string(), 85, txs);
 
         assert!(block.verify_hash());
         assert_eq!(block.header.height, 1);
@@ -375,11 +514,13 @@ mod tests {
         let vote = Vote::new(
             "validator1".to_string(),
             "blockhash123".to_string(),
+            0, // epoch
+            0, // round
             85,
             true,
         );
 
-        assert_eq!(vote.approved, true);
+        assert!(vote.approved);
         assert_eq!(vote.emotional_score, 85);
     }
 }

@@ -128,6 +128,8 @@ pub struct ProofOfEmotionEngine {
     metrics: Arc<RwLock<ConsensusMetrics>>,
     /// Finalized blocks
     finalized_blocks: Arc<RwLock<Vec<Block>>>,
+    /// Shutdown signal for graceful termination
+    shutdown_signal: Arc<tokio::sync::Notify>,
 }
 
 impl ProofOfEmotionEngine {
@@ -163,6 +165,7 @@ impl ProofOfEmotionEngine {
             is_running: Arc::new(RwLock::new(false)),
             metrics: Arc::new(RwLock::new(ConsensusMetrics::default())),
             finalized_blocks: Arc::new(RwLock::new(Vec::new())),
+            shutdown_signal: Arc::new(tokio::sync::Notify::new()),
         })
     }
 
@@ -223,8 +226,12 @@ impl ProofOfEmotionEngine {
             return Err(ConsensusError::NotRunning);
         }
         *running = false;
+        drop(running);
 
         info!("🛑 Stopping Proof of Emotion consensus engine");
+
+        // Notify shutdown signal to immediately stop epoch loop
+        self.shutdown_signal.notify_waiters();
 
         Ok(())
     }
@@ -234,21 +241,28 @@ impl ProofOfEmotionEngine {
         let mut interval = time::interval(Duration::from_millis(self.config.epoch_duration));
 
         loop {
-            interval.tick().await;
+            tokio::select! {
+                _ = interval.tick() => {
+                    // Check if we should continue running
+                    if !*self.is_running.read().await {
+                        break;
+                    }
 
-            if !*self.is_running.read().await {
-                break;
-            }
-
-            match self.execute_epoch().await {
-                Ok(_) => {
-                    let mut metrics = self.metrics.write().await;
-                    metrics.successful_epochs += 1;
+                    match self.execute_epoch().await {
+                        Ok(_) => {
+                            let mut metrics = self.metrics.write().await;
+                            metrics.successful_epochs += 1;
+                        }
+                        Err(e) => {
+                            error!("❌ Epoch failed: {}", e);
+                            let mut metrics = self.metrics.write().await;
+                            metrics.failed_epochs += 1;
+                        }
+                    }
                 }
-                Err(e) => {
-                    error!("❌ Epoch failed: {}", e);
-                    let mut metrics = self.metrics.write().await;
-                    metrics.failed_epochs += 1;
+                _ = self.shutdown_signal.notified() => {
+                    info!("🛑 Shutdown signal received, stopping epoch loop");
+                    break;
                 }
             }
         }
@@ -396,13 +410,22 @@ impl ProofOfEmotionEngine {
             "0".repeat(64)
         };
 
-        let block = Block::new(
+        // Get current epoch for replay attack prevention
+        let current_epoch = self.state.read().await.current_epoch;
+
+        let mut block = Block::new(
             last_height + 1,
+            current_epoch,
             previous_hash,
             primary.id().to_string(),
             primary.get_emotional_score(),
             transactions,
         );
+
+        // Sign the block with the proposer's key pair
+        block
+            .sign(&primary.key_pair)
+            .map_err(|e| ConsensusError::internal(format!("Failed to sign block: {}", e)))?;
 
         Ok(block)
     }
@@ -417,7 +440,7 @@ impl ProofOfEmotionEngine {
         let mut approved_count = 0;
         let mut total_emotional_score = 0u32;
 
-        // Get expected previous hash and height for validation
+        // Get expected previous hash, height, and epoch for validation
         let finalized_blocks = self.finalized_blocks.read().await;
         let expected_previous_hash = if finalized_blocks.is_empty() {
             "0".repeat(64)
@@ -427,10 +450,16 @@ impl ProofOfEmotionEngine {
         let expected_height = finalized_blocks.len() as u64 + 1;
         drop(finalized_blocks);
 
+        let expected_epoch = self.state.read().await.current_epoch;
+
         for validator in committee {
-            // Perform actual block validation
-            let validation_result =
-                validator.validate_block(block, &expected_previous_hash, expected_height);
+            // Perform actual block validation (includes epoch check for replay attack prevention)
+            let validation_result = validator.validate_block(
+                block,
+                &expected_previous_hash,
+                expected_height,
+                expected_epoch,
+            );
 
             let (approved, reason) = match validation_result {
                 Ok(()) => (true, None),
@@ -443,6 +472,8 @@ impl ProofOfEmotionEngine {
             let mut vote = Vote::new(
                 validator.id().to_string(),
                 block.hash.clone(),
+                block.header.epoch,
+                0, // round number (single round per epoch)
                 validator.get_emotional_score(),
                 approved,
             );
