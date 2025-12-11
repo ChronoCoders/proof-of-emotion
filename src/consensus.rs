@@ -134,10 +134,14 @@ impl ProofOfEmotionEngine {
     /// Create a new consensus engine
     pub fn new(config: ConsensusConfig) -> Result<Self> {
         if config.emotional_threshold > 100 {
-            return Err(ConsensusError::config_error("Emotional threshold must be <= 100"));
+            return Err(ConsensusError::config_error(
+                "Emotional threshold must be <= 100",
+            ));
         }
         if config.byzantine_threshold < 51 || config.byzantine_threshold > 100 {
-            return Err(ConsensusError::config_error("Byzantine threshold must be 51-100"));
+            return Err(ConsensusError::config_error(
+                "Byzantine threshold must be 51-100",
+            ));
         }
         if config.committee_size == 0 {
             return Err(ConsensusError::config_error("Committee size must be > 0"));
@@ -173,9 +177,13 @@ impl ProofOfEmotionEngine {
 
         let id = validator.id().to_string();
         self.validators.insert(id.clone(), Arc::new(validator));
-        
-        info!("✅ Validator {} registered with {} POE stake", id, self.validators.get(&id).unwrap().get_stake());
-        
+
+        info!(
+            "✅ Validator {} registered with {} POE stake",
+            id,
+            self.validators.get(&id).unwrap().get_stake()
+        );
+
         Ok(())
     }
 
@@ -190,11 +198,17 @@ impl ProofOfEmotionEngine {
 
         info!("🚀 Starting Proof of Emotion consensus engine");
         info!("⚙️  Epoch duration: {}ms", self.config.epoch_duration);
-        info!("💓 Emotional threshold: {}%", self.config.emotional_threshold);
-        info!("🛡️  Byzantine threshold: {}%", self.config.byzantine_threshold);
+        info!(
+            "💓 Emotional threshold: {}%",
+            self.config.emotional_threshold
+        );
+        info!(
+            "🛡️  Byzantine threshold: {}%",
+            self.config.byzantine_threshold
+        );
 
         let engine = Arc::clone(&self);
-        
+
         tokio::spawn(async move {
             engine.epoch_loop().await;
         });
@@ -209,19 +223,19 @@ impl ProofOfEmotionEngine {
             return Err(ConsensusError::NotRunning);
         }
         *running = false;
-        
+
         info!("🛑 Stopping Proof of Emotion consensus engine");
-        
+
         Ok(())
     }
 
     /// Main epoch processing loop
     async fn epoch_loop(&self) {
         let mut interval = time::interval(Duration::from_millis(self.config.epoch_duration));
-        
+
         loop {
             interval.tick().await;
-            
+
             if !*self.is_running.read().await {
                 break;
             }
@@ -243,7 +257,7 @@ impl ProofOfEmotionEngine {
     /// Execute a single epoch
     async fn execute_epoch(&self) -> Result<()> {
         let start_time = std::time::Instant::now();
-        
+
         let mut state = self.state.write().await;
         state.current_epoch += 1;
         let epoch = state.current_epoch;
@@ -252,41 +266,54 @@ impl ProofOfEmotionEngine {
         info!("⏰ Starting epoch {}", epoch);
 
         let eligible_validators = self.perform_emotional_assessment().await?;
-        
+
         if eligible_validators.is_empty() {
             return Err(ConsensusError::committee_selection_failed(
-                "No validators meet emotional fitness threshold"
+                "No validators meet emotional fitness threshold",
             ));
         }
 
-        info!("💓 {}/{} validators eligible", eligible_validators.len(), self.validators.len());
+        info!(
+            "💓 {}/{} validators eligible",
+            eligible_validators.len(),
+            self.validators.len()
+        );
 
         let committee = self.select_committee(&eligible_validators).await?;
-        
+
         info!("👥 Committee selected: {} validators", committee.len());
 
         let proposed_block = self.propose_block(&committee).await?;
-        
-        info!("📦 Block {} proposed by {}", proposed_block.header.height, proposed_block.header.validator_id);
+
+        info!(
+            "📦 Block {} proposed by {}",
+            proposed_block.header.height, proposed_block.header.validator_id
+        );
 
         let voting_result = self.execute_voting(&committee, &proposed_block).await?;
-        
+
         if !voting_result.success {
             warn!("❌ Voting failed: {:?}", voting_result.reason);
             return Err(ConsensusError::invalid_block(
-                voting_result.reason.unwrap_or_else(|| "Voting failed".to_string())
+                voting_result
+                    .reason
+                    .unwrap_or_else(|| "Voting failed".to_string()),
             ));
         }
 
-        info!("✅ Consensus reached: {}% strength", voting_result.consensus_strength);
+        info!(
+            "✅ Consensus reached: {}% strength",
+            voting_result.consensus_strength
+        );
 
         self.finalize_block(proposed_block, voting_result).await?;
 
         let duration = start_time.elapsed().as_millis() as u64;
         let mut metrics = self.metrics.write().await;
         metrics.total_epochs += 1;
-        metrics.average_duration_ms = 
-            (metrics.average_duration_ms * (metrics.total_epochs - 1) + duration) / metrics.total_epochs;
+        metrics.average_duration_ms = (metrics.average_duration_ms * (metrics.total_epochs - 1)
+            + duration)
+            / metrics.total_epochs;
 
         info!("✨ Epoch {} completed in {}ms", epoch, duration);
 
@@ -299,15 +326,15 @@ impl ProofOfEmotionEngine {
 
         for validator_ref in self.validators.iter() {
             let validator = validator_ref.value();
-            
-            let simulator = BiometricSimulator::new(
-                format!("device_{}", validator.id()),
-                validator.id()
-            );
-            
+
+            let simulator =
+                BiometricSimulator::new(format!("device_{}", validator.id()), validator.id());
+
             if let Ok(readings) = simulator.collect_readings() {
                 if let Ok(()) = validator.update_emotional_state(readings).await {
-                    if validator.is_eligible(self.config.emotional_threshold, self.config.minimum_stake) {
+                    if validator
+                        .is_eligible(self.config.emotional_threshold, self.config.minimum_stake)
+                    {
                         eligible.push(Arc::clone(validator));
                     }
                 }
@@ -318,7 +345,10 @@ impl ProofOfEmotionEngine {
     }
 
     /// Phase 2: Select committee
-    async fn select_committee(&self, eligible: &[Arc<EmotionalValidator>]) -> Result<Vec<Arc<EmotionalValidator>>> {
+    async fn select_committee(
+        &self,
+        eligible: &[Arc<EmotionalValidator>],
+    ) -> Result<Vec<Arc<EmotionalValidator>>> {
         if eligible.len() < self.config.committee_size {
             return Ok(eligible.to_vec());
         }
@@ -336,12 +366,17 @@ impl ProofOfEmotionEngine {
 
         scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
 
-        Ok(scored.into_iter().take(self.config.committee_size).map(|(v, _)| v).collect())
+        Ok(scored
+            .into_iter()
+            .take(self.config.committee_size)
+            .map(|(v, _)| v)
+            .collect())
     }
 
     /// Phase 3: Propose block
     async fn propose_block(&self, committee: &[Arc<EmotionalValidator>]) -> Result<Block> {
-        let primary = committee.first()
+        let primary = committee
+            .first()
             .ok_or_else(|| ConsensusError::committee_selection_failed("Empty committee"))?;
 
         let pending_txs = self.pending_transactions.lock().await;
@@ -350,7 +385,13 @@ impl ProofOfEmotionEngine {
 
         let last_height = self.finalized_blocks.read().await.len() as u64;
         let previous_hash = if last_height > 0 {
-            self.finalized_blocks.read().await.last().unwrap().hash.clone()
+            self.finalized_blocks
+                .read()
+                .await
+                .last()
+                .unwrap()
+                .hash
+                .clone()
         } else {
             "0".repeat(64)
         };
@@ -376,13 +417,36 @@ impl ProofOfEmotionEngine {
         let mut approved_count = 0;
         let mut total_emotional_score = 0u32;
 
+        // Get expected previous hash and height for validation
+        let finalized_blocks = self.finalized_blocks.read().await;
+        let expected_previous_hash = if finalized_blocks.is_empty() {
+            "0".repeat(64)
+        } else {
+            finalized_blocks.last().unwrap().hash.clone()
+        };
+        let expected_height = finalized_blocks.len() as u64 + 1;
+        drop(finalized_blocks);
+
         for validator in committee {
-            let vote = Vote::new(
+            // Perform actual block validation
+            let validation_result =
+                validator.validate_block(block, &expected_previous_hash, expected_height);
+
+            let (approved, reason) = match validation_result {
+                Ok(()) => (true, None),
+                Err(err_msg) => {
+                    warn!("Validator {} rejected block: {}", validator.id(), err_msg);
+                    (false, Some(err_msg))
+                }
+            };
+
+            let mut vote = Vote::new(
                 validator.id().to_string(),
                 block.hash.clone(),
                 validator.get_emotional_score(),
-                true,
+                approved,
             );
+            vote.reason = reason;
 
             if vote.approved {
                 approved_count += 1;
@@ -392,8 +456,10 @@ impl ProofOfEmotionEngine {
         }
 
         let participant_count = votes.len();
-        let required_votes = (self.config.committee_size as f64 * (self.config.byzantine_threshold as f64 / 100.0)).ceil() as usize;
-        
+        let required_votes = (self.config.committee_size as f64
+            * (self.config.byzantine_threshold as f64 / 100.0))
+            .ceil() as usize;
+
         let success = approved_count >= required_votes;
         let consensus_strength = ((approved_count as f64 / committee.len() as f64) * 100.0) as u8;
         let average_emotional_score = (total_emotional_score / participant_count as u32) as u8;
@@ -406,7 +472,11 @@ impl ProofOfEmotionEngine {
             average_emotional_score,
             participants: committee.iter().map(|v| v.id().to_string()).collect(),
             votes,
-            reason: if success { None } else { Some("Insufficient votes".to_string()) },
+            reason: if success {
+                None
+            } else {
+                Some("Insufficient votes".to_string())
+            },
         })
     }
 
@@ -431,15 +501,23 @@ impl ProofOfEmotionEngine {
         state.last_finalized_height = block.header.height;
         state.consensus_strength = voting_result.consensus_strength;
         state.emotional_fitness = voting_result.average_emotional_score;
-        state.participation_rate = ((voting_result.participant_count as f64 / self.validators.len() as f64) * 100.0) as u8;
+        state.participation_rate =
+            ((voting_result.participant_count as f64 / self.validators.len() as f64) * 100.0) as u8;
 
         let mut pending = self.pending_transactions.lock().await;
-        let finalized_hashes: std::collections::HashSet<_> = 
-            block.transactions.iter().map(|tx| tx.hash.clone()).collect();
+        let finalized_hashes: std::collections::HashSet<_> = block
+            .transactions
+            .iter()
+            .map(|tx| tx.hash.clone())
+            .collect();
         pending.retain(|tx| !finalized_hashes.contains(&tx.hash));
         state.pending_transactions = pending.len();
 
-        info!("🎉 Block {} finalized with {} transactions", block.header.height, block.transactions.len());
+        info!(
+            "🎉 Block {} finalized with {} transactions",
+            block.header.height,
+            block.transactions.len()
+        );
 
         Ok(())
     }
@@ -448,10 +526,10 @@ impl ProofOfEmotionEngine {
     pub async fn submit_transaction(&self, transaction: Transaction) -> Result<()> {
         let mut pending = self.pending_transactions.lock().await;
         pending.push(transaction);
-        
+
         let mut state = self.state.write().await;
         state.pending_transactions = pending.len();
-        
+
         Ok(())
     }
 
@@ -491,10 +569,10 @@ mod tests {
     async fn test_validator_registration() {
         let config = ConsensusConfig::default();
         let engine = ProofOfEmotionEngine::new(config).unwrap();
-        
+
         let validator = EmotionalValidator::new("validator-1", 10_000).unwrap();
         engine.register_validator(validator).await.unwrap();
-        
+
         assert_eq!(engine.get_validator_count(), 1);
     }
 
@@ -502,10 +580,10 @@ mod tests {
     async fn test_insufficient_stake_registration() {
         let config = ConsensusConfig::default();
         let engine = ProofOfEmotionEngine::new(config).unwrap();
-        
+
         let validator = EmotionalValidator::new("validator-1", 5_000).unwrap();
         let result = engine.register_validator(validator).await;
-        
+
         assert!(result.is_err());
     }
 }

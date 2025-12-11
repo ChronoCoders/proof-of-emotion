@@ -1,8 +1,6 @@
 //! Staking and rewards example
 
-use proof_of_emotion::staking::{
-    EmotionalStaking, SlashingOffense,
-};
+use proof_of_emotion::staking::{EmotionalStaking, SlashingOffense};
 use std::collections::HashMap;
 
 fn main() -> anyhow::Result<()> {
@@ -11,7 +9,7 @@ fn main() -> anyhow::Result<()> {
     let staking = EmotionalStaking::new(10_000);
 
     println!("👥 Registering validators...\n");
-    
+
     let validators = vec![
         ("Alice", "poe1alice", 10_000, 5),
         ("Bob", "poe1bob", 15_000, 3),
@@ -19,17 +17,15 @@ fn main() -> anyhow::Result<()> {
     ];
 
     for (name, address, stake, commission) in validators {
-        staking.register_validator(
-            name.to_string(),
-            address.to_string(),
-            stake,
-            commission,
-        )?;
-        println!("   ✓ {} - {} POE stake, {}% commission", name, stake, commission);
+        staking.register_validator(name.to_string(), address.to_string(), stake, commission)?;
+        println!(
+            "   ✓ {} - {} POE stake, {}% commission",
+            name, stake, commission
+        );
     }
 
     println!("\n💼 Delegating stakes...\n");
-    
+
     staking.delegate_stake(
         "Alice".to_string(),
         "delegator1".to_string(),
@@ -47,7 +43,7 @@ fn main() -> anyhow::Result<()> {
     println!("   ✓ Delegator2 → Bob: 8,000 POE");
 
     println!("\n💓 Simulating epoch with emotional scores...\n");
-    
+
     let mut scores = HashMap::new();
     scores.insert("Alice".to_string(), 85);
     scores.insert("Bob".to_string(), 90);
@@ -67,7 +63,7 @@ fn main() -> anyhow::Result<()> {
     }
 
     println!("\n⚠️  Applying slashing to Charlie...\n");
-    
+
     let charlie_before = staking.get_validator("Charlie").unwrap();
     println!("   Charlie stake before: {} POE", charlie_before.stake);
 
@@ -79,7 +75,10 @@ fn main() -> anyhow::Result<()> {
 
     let charlie_after = staking.get_validator("Charlie").unwrap();
     println!("   Charlie stake after: {} POE", charlie_after.stake);
-    println!("   Slashed: {} POE", charlie_before.stake - charlie_after.stake);
+    println!(
+        "   Slashed: {} POE",
+        charlie_before.stake - charlie_after.stake
+    );
 
     println!("\n✅ Staking example completed!");
     Ok(())

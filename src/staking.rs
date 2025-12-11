@@ -1,10 +1,10 @@
 //! Emotional staking engine with rewards and slashing
 
 use crate::error::{ConsensusError, Result};
+use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
-use parking_lot::RwLock;
 
 /// Validator in the staking system
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -163,7 +163,10 @@ impl EmotionalStaking {
         commission: u8,
     ) -> Result<()> {
         if initial_stake < self.min_stake {
-            return Err(ConsensusError::insufficient_stake(initial_stake, self.min_stake));
+            return Err(ConsensusError::insufficient_stake(
+                initial_stake,
+                self.min_stake,
+            ));
         }
 
         if commission > 20 {
@@ -200,7 +203,8 @@ impl EmotionalStaking {
         }
 
         let validators = self.validators.read();
-        let validator = validators.get(&validator_id)
+        let validator = validators
+            .get(&validator_id)
             .ok_or_else(|| ConsensusError::validator_not_found(&validator_id))?;
 
         if !validator.is_active {
@@ -231,7 +235,8 @@ impl EmotionalStaking {
         evidence: String,
     ) -> Result<()> {
         let mut validators = self.validators.write();
-        let validator = validators.get_mut(validator_id)
+        let validator = validators
+            .get_mut(validator_id)
             .ok_or_else(|| ConsensusError::validator_not_found(validator_id))?;
 
         let severity = Self::determine_severity(offense, &evidence);
@@ -275,7 +280,10 @@ impl EmotionalStaking {
     }
 
     /// Distribute rewards for an epoch
-    pub fn distribute_rewards(&self, validator_scores: HashMap<String, u8>) -> Result<RewardDistribution> {
+    pub fn distribute_rewards(
+        &self,
+        validator_scores: HashMap<String, u8>,
+    ) -> Result<RewardDistribution> {
         let epoch = {
             let mut current = self.current_epoch.write();
             *current += 1;
@@ -300,7 +308,8 @@ impl EmotionalStaking {
                 }
 
                 let stake_weight = (validator.stake as f64).sqrt();
-                let base_reward = ((stake_weight / total_stake_weight) * base_reward_pool as f64) as u64;
+                let base_reward =
+                    ((stake_weight / total_stake_weight) * base_reward_pool as f64) as u64;
 
                 let emotional_multiplier = if emotional_score >= 75 {
                     1.0 + ((emotional_score - 75) as f64 / 100.0) * 0.3
@@ -400,14 +409,10 @@ mod tests {
     #[test]
     fn test_validator_registration() {
         let staking = EmotionalStaking::new(10_000);
-        
-        let result = staking.register_validator(
-            "validator-1".to_string(),
-            "addr1".to_string(),
-            10_000,
-            5,
-        );
-        
+
+        let result =
+            staking.register_validator("validator-1".to_string(), "addr1".to_string(), 10_000, 5);
+
         assert!(result.is_ok());
         assert!(staking.get_validator("validator-1").is_some());
     }
@@ -415,57 +420,47 @@ mod tests {
     #[test]
     fn test_insufficient_stake() {
         let staking = EmotionalStaking::new(10_000);
-        
-        let result = staking.register_validator(
-            "validator-1".to_string(),
-            "addr1".to_string(),
-            5_000,
-            5,
-        );
-        
+
+        let result =
+            staking.register_validator("validator-1".to_string(), "addr1".to_string(), 5_000, 5);
+
         assert!(result.is_err());
     }
 
     #[test]
     fn test_stake_delegation() {
         let staking = EmotionalStaking::new(10_000);
-        
-        staking.register_validator(
-            "validator-1".to_string(),
-            "addr1".to_string(),
-            10_000,
-            5,
-        ).unwrap();
-        
+
+        staking
+            .register_validator("validator-1".to_string(), "addr1".to_string(), 10_000, 5)
+            .unwrap();
+
         let result = staking.delegate_stake(
             "validator-1".to_string(),
             "delegator1".to_string(),
             5_000,
             21 * 24 * 60 * 60,
         );
-        
+
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_slashing() {
         let staking = EmotionalStaking::new(10_000);
-        
-        staking.register_validator(
-            "validator-1".to_string(),
-            "addr1".to_string(),
-            10_000,
-            5,
-        ).unwrap();
-        
+
+        staking
+            .register_validator("validator-1".to_string(), "addr1".to_string(), 10_000, 5)
+            .unwrap();
+
         let result = staking.slash_validator(
             "validator-1",
             SlashingOffense::PoorEmotionalBehavior,
             "Score below 40".to_string(),
         );
-        
+
         assert!(result.is_ok());
-        
+
         let validator = staking.get_validator("validator-1").unwrap();
         assert!(validator.stake < 10_000);
     }

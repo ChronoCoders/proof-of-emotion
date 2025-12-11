@@ -170,18 +170,18 @@ impl Block {
     /// Calculate block hash
     pub fn calculate_block_hash(header: &BlockHeader, transactions: &[Transaction]) -> String {
         let mut hasher = Sha256::new();
-        
+
         hasher.update(header.height.to_le_bytes());
         hasher.update(header.previous_hash.as_bytes());
         hasher.update(header.merkle_root.as_bytes());
         hasher.update(header.timestamp.to_le_bytes());
         hasher.update(header.validator_id.as_bytes());
         hasher.update([header.emotional_score]);
-        
+
         for tx in transactions {
             hasher.update(tx.hash.as_bytes());
         }
-        
+
         hex::encode(hasher.finalize())
     }
 
@@ -198,7 +198,7 @@ impl Block {
 
         while hashes.len() > 1 {
             let mut next_level = Vec::new();
-            
+
             for chunk in hashes.chunks(2) {
                 let mut hasher = Sha256::new();
                 hasher.update(&chunk[0]);
@@ -209,7 +209,7 @@ impl Block {
                 }
                 next_level.push(hasher.finalize().to_vec());
             }
-            
+
             hashes = next_level;
         }
 
@@ -270,20 +270,20 @@ impl Transaction {
 
     /// Verify transaction hash
     pub fn verify_hash(&self) -> bool {
-        let calculated_hash = Self::calculate_tx_hash(
-            &self.from,
-            &self.to,
-            self.amount,
-            self.fee,
-            self.timestamp,
-        );
+        let calculated_hash =
+            Self::calculate_tx_hash(&self.from, &self.to, self.amount, self.fee, self.timestamp);
         calculated_hash == self.hash
     }
 }
 
 impl Vote {
     /// Create a new vote
-    pub fn new(validator_id: String, block_hash: String, emotional_score: u8, approved: bool) -> Self {
+    pub fn new(
+        validator_id: String,
+        block_hash: String,
+        emotional_score: u8,
+        approved: bool,
+    ) -> Self {
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
@@ -333,13 +333,8 @@ mod tests {
 
     #[test]
     fn test_transaction_creation() {
-        let tx = Transaction::new(
-            "addr1".to_string(),
-            "addr2".to_string(),
-            1000,
-            10,
-        );
-        
+        let tx = Transaction::new("addr1".to_string(), "addr2".to_string(), 1000, 10);
+
         assert!(tx.verify_hash());
         assert_eq!(tx.amount, 1000);
         assert_eq!(tx.fee, 10);
@@ -352,13 +347,7 @@ mod tests {
             Transaction::new("addr3".to_string(), "addr4".to_string(), 2000, 20),
         ];
 
-        let block = Block::new(
-            1,
-            "0".repeat(64),
-            "validator1".to_string(),
-            85,
-            txs,
-        );
+        let block = Block::new(1, "0".repeat(64), "validator1".to_string(), 85, txs);
 
         assert!(block.verify_hash());
         assert_eq!(block.header.height, 1);
@@ -367,13 +356,16 @@ mod tests {
 
     #[test]
     fn test_merkle_root() {
-        let txs = vec![
-            Transaction::new("addr1".to_string(), "addr2".to_string(), 1000, 10),
-        ];
+        let txs = vec![Transaction::new(
+            "addr1".to_string(),
+            "addr2".to_string(),
+            1000,
+            10,
+        )];
 
         let root1 = Block::calculate_merkle_root(&txs);
         let root2 = Block::calculate_merkle_root(&txs);
-        
+
         assert_eq!(root1, root2);
         assert!(!root1.is_empty());
     }

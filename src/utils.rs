@@ -24,7 +24,7 @@ pub fn calculate_variance(values: &[f64]) -> f64 {
 
     let mean = values.iter().sum::<f64>() / values.len() as f64;
     let squared_diffs: f64 = values.iter().map(|v| (v - mean).powi(2)).sum();
-    
+
     squared_diffs / values.len() as f64
 }
 
@@ -193,7 +193,7 @@ mod tests {
         let seed1 = string_to_seed("validator-1");
         let seed2 = string_to_seed("validator-1");
         let seed3 = string_to_seed("validator-2");
-        
+
         assert_eq!(seed1, seed2);
         assert_ne!(seed1, seed3);
     }
