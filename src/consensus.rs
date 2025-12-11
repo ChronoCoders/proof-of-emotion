@@ -396,13 +396,18 @@ impl ProofOfEmotionEngine {
             "0".repeat(64)
         };
 
-        let block = Block::new(
+        let mut block = Block::new(
             last_height + 1,
             previous_hash,
             primary.id().to_string(),
             primary.get_emotional_score(),
             transactions,
         );
+
+        // Sign the block with the proposer's key pair
+        block
+            .sign(&primary.key_pair)
+            .map_err(|e| ConsensusError::internal(format!("Failed to sign block: {}", e)))?;
 
         Ok(block)
     }

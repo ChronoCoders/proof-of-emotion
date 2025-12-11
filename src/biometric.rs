@@ -400,6 +400,24 @@ impl EmotionalValidator {
             return Err("Block has no validator ID".to_string());
         }
 
+        // 8. Verify block signature
+        match block.verify_signature() {
+            Ok(true) => {}
+            Ok(false) => return Err("Block signature verification failed".to_string()),
+            Err(e) => return Err(format!("Block signature error: {}", e)),
+        }
+
+        // 9. Verify all transaction signatures
+        for (i, tx) in block.transactions.iter().enumerate() {
+            match tx.verify_signature() {
+                Ok(true) => {}
+                Ok(false) => {
+                    return Err(format!("Transaction {} signature verification failed", i))
+                }
+                Err(e) => return Err(format!("Transaction {} signature error: {}", i, e)),
+            }
+        }
+
         Ok(())
     }
 }

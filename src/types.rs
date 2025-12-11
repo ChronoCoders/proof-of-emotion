@@ -226,6 +226,74 @@ impl Block {
     pub fn size(&self) -> usize {
         bincode::serialize(self).map(|b| b.len()).unwrap_or(0)
     }
+
+    /// Sign the block with a key pair
+    pub fn sign(&mut self, key_pair: &crate::crypto::KeyPair) -> Result<(), String> {
+        // Serialize the data to be signed (header + transactions)
+        let mut data_to_sign = Vec::new();
+
+        // Include all header fields
+        data_to_sign.extend_from_slice(&self.header.height.to_le_bytes());
+        data_to_sign.extend_from_slice(self.header.previous_hash.as_bytes());
+        data_to_sign.extend_from_slice(self.header.merkle_root.as_bytes());
+        data_to_sign.extend_from_slice(&self.header.timestamp.to_le_bytes());
+        data_to_sign.extend_from_slice(self.header.validator_id.as_bytes());
+        data_to_sign.push(self.header.emotional_score);
+
+        // Include block hash
+        data_to_sign.extend_from_slice(self.hash.as_bytes());
+
+        // Include all transaction hashes
+        for tx in &self.transactions {
+            data_to_sign.extend_from_slice(tx.hash.as_bytes());
+        }
+
+        // Sign the data
+        let sig = key_pair
+            .sign(&data_to_sign)
+            .map_err(|e| format!("Failed to sign block: {}", e))?;
+
+        // Serialize signature to JSON string
+        self.signature = serde_json::to_string(&sig)
+            .map_err(|e| format!("Failed to serialize signature: {}", e))?;
+        self.proposer_public_key = key_pair.public_key_hex();
+
+        Ok(())
+    }
+
+    /// Verify the block signature
+    pub fn verify_signature(&self) -> Result<bool, String> {
+        if self.signature.is_empty() {
+            return Err("Block has no signature".to_string());
+        }
+
+        if self.proposer_public_key.is_empty() {
+            return Err("Block has no public key".to_string());
+        }
+
+        // Deserialize signature from JSON
+        let sig: crate::crypto::Signature = serde_json::from_str(&self.signature)
+            .map_err(|e| format!("Failed to deserialize signature: {}", e))?;
+
+        // Reconstruct the signed data
+        let mut data_to_verify = Vec::new();
+
+        data_to_verify.extend_from_slice(&self.header.height.to_le_bytes());
+        data_to_verify.extend_from_slice(self.header.previous_hash.as_bytes());
+        data_to_verify.extend_from_slice(self.header.merkle_root.as_bytes());
+        data_to_verify.extend_from_slice(&self.header.timestamp.to_le_bytes());
+        data_to_verify.extend_from_slice(self.header.validator_id.as_bytes());
+        data_to_verify.push(self.header.emotional_score);
+        data_to_verify.extend_from_slice(self.hash.as_bytes());
+
+        for tx in &self.transactions {
+            data_to_verify.extend_from_slice(tx.hash.as_bytes());
+        }
+
+        // Verify signature
+        crate::crypto::KeyPair::verify(&data_to_verify, &sig, &self.proposer_public_key)
+            .map_err(|e| format!("Signature verification failed: {}", e))
+    }
 }
 
 impl Transaction {
@@ -273,6 +341,62 @@ impl Transaction {
         let calculated_hash =
             Self::calculate_tx_hash(&self.from, &self.to, self.amount, self.fee, self.timestamp);
         calculated_hash == self.hash
+    }
+
+    /// Sign the transaction with a key pair
+    pub fn sign(&mut self, key_pair: &crate::crypto::KeyPair) -> Result<(), String> {
+        // Serialize the transaction data to be signed
+        let mut data_to_sign = Vec::new();
+
+        data_to_sign.extend_from_slice(self.hash.as_bytes());
+        data_to_sign.extend_from_slice(self.from.as_bytes());
+        data_to_sign.extend_from_slice(self.to.as_bytes());
+        data_to_sign.extend_from_slice(&self.amount.to_le_bytes());
+        data_to_sign.extend_from_slice(&self.fee.to_le_bytes());
+        data_to_sign.extend_from_slice(&self.timestamp.to_le_bytes());
+        data_to_sign.extend_from_slice(&self.data);
+
+        // Sign the data
+        let sig = key_pair
+            .sign(&data_to_sign)
+            .map_err(|e| format!("Failed to sign transaction: {}", e))?;
+
+        // Serialize signature to JSON string
+        self.signature = serde_json::to_string(&sig)
+            .map_err(|e| format!("Failed to serialize signature: {}", e))?;
+        self.public_key = key_pair.public_key_hex();
+
+        Ok(())
+    }
+
+    /// Verify the transaction signature
+    pub fn verify_signature(&self) -> Result<bool, String> {
+        if self.signature.is_empty() {
+            return Err("Transaction has no signature".to_string());
+        }
+
+        if self.public_key.is_empty() {
+            return Err("Transaction has no public key".to_string());
+        }
+
+        // Deserialize signature from JSON
+        let sig: crate::crypto::Signature = serde_json::from_str(&self.signature)
+            .map_err(|e| format!("Failed to deserialize signature: {}", e))?;
+
+        // Reconstruct the signed data
+        let mut data_to_verify = Vec::new();
+
+        data_to_verify.extend_from_slice(self.hash.as_bytes());
+        data_to_verify.extend_from_slice(self.from.as_bytes());
+        data_to_verify.extend_from_slice(self.to.as_bytes());
+        data_to_verify.extend_from_slice(&self.amount.to_le_bytes());
+        data_to_verify.extend_from_slice(&self.fee.to_le_bytes());
+        data_to_verify.extend_from_slice(&self.timestamp.to_le_bytes());
+        data_to_verify.extend_from_slice(&self.data);
+
+        // Verify signature
+        crate::crypto::KeyPair::verify(&data_to_verify, &sig, &self.public_key)
+            .map_err(|e| format!("Transaction signature verification failed: {}", e))
     }
 }
 
