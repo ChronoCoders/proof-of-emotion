@@ -128,6 +128,8 @@ pub struct ProofOfEmotionEngine {
     metrics: Arc<RwLock<ConsensusMetrics>>,
     /// Finalized blocks
     finalized_blocks: Arc<RwLock<Vec<Block>>>,
+    /// Shutdown signal for graceful termination
+    shutdown_signal: Arc<tokio::sync::Notify>,
 }
 
 impl ProofOfEmotionEngine {
@@ -163,6 +165,7 @@ impl ProofOfEmotionEngine {
             is_running: Arc::new(RwLock::new(false)),
             metrics: Arc::new(RwLock::new(ConsensusMetrics::default())),
             finalized_blocks: Arc::new(RwLock::new(Vec::new())),
+            shutdown_signal: Arc::new(tokio::sync::Notify::new()),
         })
     }
 
@@ -223,8 +226,12 @@ impl ProofOfEmotionEngine {
             return Err(ConsensusError::NotRunning);
         }
         *running = false;
+        drop(running);
 
         info!("🛑 Stopping Proof of Emotion consensus engine");
+
+        // Notify shutdown signal to immediately stop epoch loop
+        self.shutdown_signal.notify_waiters();
 
         Ok(())
     }
@@ -234,21 +241,28 @@ impl ProofOfEmotionEngine {
         let mut interval = time::interval(Duration::from_millis(self.config.epoch_duration));
 
         loop {
-            interval.tick().await;
+            tokio::select! {
+                _ = interval.tick() => {
+                    // Check if we should continue running
+                    if !*self.is_running.read().await {
+                        break;
+                    }
 
-            if !*self.is_running.read().await {
-                break;
-            }
-
-            match self.execute_epoch().await {
-                Ok(_) => {
-                    let mut metrics = self.metrics.write().await;
-                    metrics.successful_epochs += 1;
+                    match self.execute_epoch().await {
+                        Ok(_) => {
+                            let mut metrics = self.metrics.write().await;
+                            metrics.successful_epochs += 1;
+                        }
+                        Err(e) => {
+                            error!("❌ Epoch failed: {}", e);
+                            let mut metrics = self.metrics.write().await;
+                            metrics.failed_epochs += 1;
+                        }
+                    }
                 }
-                Err(e) => {
-                    error!("❌ Epoch failed: {}", e);
-                    let mut metrics = self.metrics.write().await;
-                    metrics.failed_epochs += 1;
+                _ = self.shutdown_signal.notified() => {
+                    info!("🛑 Shutdown signal received, stopping epoch loop");
+                    break;
                 }
             }
         }
