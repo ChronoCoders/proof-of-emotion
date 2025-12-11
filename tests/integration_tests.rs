@@ -158,7 +158,14 @@ async fn test_slashing() {
 async fn test_block_creation() {
     let tx1 = types::Transaction::new("addr1".to_string(), "addr2".to_string(), 1000, 10);
 
-    let block = types::Block::new(1, "0".repeat(64), "validator1".to_string(), 85, vec![tx1]);
+    let block = types::Block::new(
+        1,
+        0,
+        "0".repeat(64),
+        "validator1".to_string(),
+        85,
+        vec![tx1],
+    );
 
     assert_eq!(block.header.height, 1);
     assert!(block.verify_hash());

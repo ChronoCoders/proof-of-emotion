@@ -331,6 +331,7 @@ impl EmotionalValidator {
     ///
     /// Performs comprehensive validation including:
     /// - Block hash verification
+    /// - Epoch validation (replay attack prevention)
     /// - Previous hash validation
     /// - Block height sequence check
     /// - Transaction hash verification
@@ -341,13 +342,22 @@ impl EmotionalValidator {
         block: &crate::types::Block,
         expected_previous_hash: &str,
         expected_height: u64,
+        expected_epoch: u64,
     ) -> std::result::Result<(), String> {
         // 1. Verify block hash matches content
         if !block.verify_hash() {
             return Err("Block hash does not match content".to_string());
         }
 
-        // 2. Verify previous hash
+        // 2. Verify epoch matches (replay attack prevention)
+        if block.header.epoch != expected_epoch {
+            return Err(format!(
+                "Epoch mismatch: expected {}, got {} (possible replay attack)",
+                expected_epoch, block.header.epoch
+            ));
+        }
+
+        // 3. Verify previous hash
         if block.header.previous_hash != expected_previous_hash {
             return Err(format!(
                 "Previous hash mismatch: expected {}, got {}",
@@ -355,7 +365,7 @@ impl EmotionalValidator {
             ));
         }
 
-        // 3. Verify block height is sequential
+        // 4. Verify block height is sequential
         if block.header.height != expected_height {
             return Err(format!(
                 "Block height mismatch: expected {}, got {}",

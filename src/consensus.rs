@@ -396,8 +396,12 @@ impl ProofOfEmotionEngine {
             "0".repeat(64)
         };
 
+        // Get current epoch for replay attack prevention
+        let current_epoch = self.state.read().await.current_epoch;
+
         let mut block = Block::new(
             last_height + 1,
+            current_epoch,
             previous_hash,
             primary.id().to_string(),
             primary.get_emotional_score(),
@@ -422,7 +426,7 @@ impl ProofOfEmotionEngine {
         let mut approved_count = 0;
         let mut total_emotional_score = 0u32;
 
-        // Get expected previous hash and height for validation
+        // Get expected previous hash, height, and epoch for validation
         let finalized_blocks = self.finalized_blocks.read().await;
         let expected_previous_hash = if finalized_blocks.is_empty() {
             "0".repeat(64)
@@ -432,10 +436,16 @@ impl ProofOfEmotionEngine {
         let expected_height = finalized_blocks.len() as u64 + 1;
         drop(finalized_blocks);
 
+        let expected_epoch = self.state.read().await.current_epoch;
+
         for validator in committee {
-            // Perform actual block validation
-            let validation_result =
-                validator.validate_block(block, &expected_previous_hash, expected_height);
+            // Perform actual block validation (includes epoch check for replay attack prevention)
+            let validation_result = validator.validate_block(
+                block,
+                &expected_previous_hash,
+                expected_height,
+                expected_epoch,
+            );
 
             let (approved, reason) = match validation_result {
                 Ok(()) => (true, None),
@@ -448,6 +458,8 @@ impl ProofOfEmotionEngine {
             let mut vote = Vote::new(
                 validator.id().to_string(),
                 block.hash.clone(),
+                block.header.epoch,
+                0, // round number (single round per epoch)
                 validator.get_emotional_score(),
                 approved,
             );

@@ -9,6 +9,8 @@ use std::fmt;
 pub struct BlockHeader {
     /// Block height
     pub height: u64,
+    /// Epoch number (for replay attack prevention)
+    pub epoch: u64,
     /// Hash of previous block
     pub previous_hash: String,
     /// Merkle root of transactions
@@ -93,6 +95,10 @@ pub struct Vote {
     pub validator_id: String,
     /// Block hash being voted on
     pub block_hash: String,
+    /// Epoch number (for replay attack prevention)
+    pub epoch: u64,
+    /// Round number within epoch
+    pub round: u32,
     /// Emotional score of validator at vote time
     pub emotional_score: u8,
     /// Vote signature
@@ -130,6 +136,7 @@ impl Block {
     /// Create a new block
     pub fn new(
         height: u64,
+        epoch: u64,
         previous_hash: String,
         validator_id: String,
         emotional_score: u8,
@@ -144,6 +151,7 @@ impl Block {
 
         let header = BlockHeader {
             height,
+            epoch,
             previous_hash,
             merkle_root,
             timestamp,
@@ -172,6 +180,7 @@ impl Block {
         let mut hasher = Sha256::new();
 
         hasher.update(header.height.to_le_bytes());
+        hasher.update(header.epoch.to_le_bytes());
         hasher.update(header.previous_hash.as_bytes());
         hasher.update(header.merkle_root.as_bytes());
         hasher.update(header.timestamp.to_le_bytes());
@@ -234,6 +243,7 @@ impl Block {
 
         // Include all header fields
         data_to_sign.extend_from_slice(&self.header.height.to_le_bytes());
+        data_to_sign.extend_from_slice(&self.header.epoch.to_le_bytes());
         data_to_sign.extend_from_slice(self.header.previous_hash.as_bytes());
         data_to_sign.extend_from_slice(self.header.merkle_root.as_bytes());
         data_to_sign.extend_from_slice(&self.header.timestamp.to_le_bytes());
@@ -279,6 +289,7 @@ impl Block {
         let mut data_to_verify = Vec::new();
 
         data_to_verify.extend_from_slice(&self.header.height.to_le_bytes());
+        data_to_verify.extend_from_slice(&self.header.epoch.to_le_bytes());
         data_to_verify.extend_from_slice(self.header.previous_hash.as_bytes());
         data_to_verify.extend_from_slice(self.header.merkle_root.as_bytes());
         data_to_verify.extend_from_slice(&self.header.timestamp.to_le_bytes());
@@ -405,6 +416,8 @@ impl Vote {
     pub fn new(
         validator_id: String,
         block_hash: String,
+        epoch: u64,
+        round: u32,
         emotional_score: u8,
         approved: bool,
     ) -> Self {
@@ -416,6 +429,8 @@ impl Vote {
         Self {
             validator_id,
             block_hash,
+            epoch,
+            round,
             emotional_score,
             signature: String::new(),
             timestamp,
@@ -471,7 +486,7 @@ mod tests {
             Transaction::new("addr3".to_string(), "addr4".to_string(), 2000, 20),
         ];
 
-        let block = Block::new(1, "0".repeat(64), "validator1".to_string(), 85, txs);
+        let block = Block::new(1, 0, "0".repeat(64), "validator1".to_string(), 85, txs);
 
         assert!(block.verify_hash());
         assert_eq!(block.header.height, 1);
@@ -499,6 +514,8 @@ mod tests {
         let vote = Vote::new(
             "validator1".to_string(),
             "blockhash123".to_string(),
+            0, // epoch
+            0, // round
             85,
             true,
         );
