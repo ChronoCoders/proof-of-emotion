@@ -216,6 +216,19 @@ impl ProofOfEmotionEngine {
             engine.epoch_loop().await;
         });
 
+        // Spawn periodic cleanup task to prevent memory leak from expired transactions
+        let cleanup_engine = Arc::clone(&self);
+        tokio::spawn(async move {
+            let mut cleanup_interval = time::interval(Duration::from_secs(60));
+            loop {
+                cleanup_interval.tick().await;
+                if !*cleanup_engine.is_running.read().await {
+                    break;
+                }
+                cleanup_engine.cleanup_transaction_pool().await;
+            }
+        });
+
         Ok(())
     }
 
@@ -541,7 +554,28 @@ impl ProofOfEmotionEngine {
             .iter()
             .map(|tx| tx.hash.clone())
             .collect();
-        pending.retain(|tx| !finalized_hashes.contains(&tx.hash));
+
+        // Remove finalized AND expired transactions to prevent memory leak
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64;
+        const MAX_TX_AGE: u64 = 5 * 60 * 1000; // 5 minutes
+
+        let initial_count = pending.len();
+        pending
+            .retain(|tx| !finalized_hashes.contains(&tx.hash) && !tx.is_expired(now, MAX_TX_AGE));
+        let removed_count = initial_count - pending.len();
+
+        if removed_count > 0 {
+            info!(
+                "🧹 Cleaned up {} transactions ({} finalized, {} expired)",
+                removed_count,
+                finalized_hashes.len(),
+                removed_count.saturating_sub(finalized_hashes.len())
+            );
+        }
+
         state.pending_transactions = pending.len();
 
         info!(
@@ -562,6 +596,34 @@ impl ProofOfEmotionEngine {
         state.pending_transactions = pending.len();
 
         Ok(())
+    }
+
+    /// Cleanup expired transactions from the transaction pool
+    ///
+    /// This method removes transactions that have exceeded their TTL (5 minutes).
+    /// It runs periodically to prevent memory leaks from rejected/invalid transactions.
+    async fn cleanup_transaction_pool(&self) {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64;
+        const MAX_TX_AGE: u64 = 5 * 60 * 1000; // 5 minutes
+
+        let mut pending = self.pending_transactions.lock().await;
+        let initial_count = pending.len();
+        pending.retain(|tx| !tx.is_expired(now, MAX_TX_AGE));
+        let removed_count = initial_count - pending.len();
+
+        if removed_count > 0 {
+            info!(
+                "🧹 Periodic cleanup: removed {} expired transactions",
+                removed_count
+            );
+
+            // Update state
+            let mut state = self.state.write().await;
+            state.pending_transactions = pending.len();
+        }
     }
 
     /// Get current consensus state
