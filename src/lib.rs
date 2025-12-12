@@ -1,4 +1,5 @@
 pub mod biometric;
+pub mod byzantine;
 pub mod consensus;
 pub mod crypto;
 pub mod error;
@@ -7,6 +8,7 @@ pub mod types;
 pub mod utils;
 
 pub use biometric::{BiometricDevice, BiometricReading, EmotionalProfile, EmotionalValidator};
+pub use byzantine::ByzantineDetector;
 pub use consensus::{
     ConsensusConfig, ConsensusMetrics, ConsensusRound, ConsensusState, ProofOfEmotionEngine,
     RoundPhase,

@@ -327,6 +327,18 @@ impl EmotionalValidator {
         *self.reputation.read()
     }
 
+    /// Adjust reputation (positive or negative adjustment)
+    ///
+    /// Used for rewarding good behavior or penalizing Byzantine behavior
+    pub fn adjust_reputation(&self, adjustment: i16) {
+        let mut reputation = self.reputation.write();
+        if adjustment < 0 {
+            *reputation = reputation.saturating_sub(adjustment.unsigned_abs() as u8);
+        } else {
+            *reputation = reputation.saturating_add(adjustment as u8).min(100);
+        }
+    }
+
     /// Validate a block proposal
     ///
     /// Performs comprehensive validation including:
