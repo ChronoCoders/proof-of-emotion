@@ -397,11 +397,20 @@ impl ProofOfEmotionEngine {
 
         scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
 
-        Ok(scored
+        let committee: Vec<_> = scored
             .into_iter()
             .take(self.config.committee_size)
             .map(|(v, _)| v)
-            .collect())
+            .collect();
+
+        // TODO: Integrate stake locking when EmotionalStaking is added to consensus engine
+        // This prevents nothing-at-stake attacks by locking validator stake during consensus
+        // Example integration:
+        // for validator in &committee {
+        //     self.staking.lock_stake(validator.id(), validator.get_stake(), 1)?;
+        // }
+
+        Ok(committee)
     }
 
     /// Phase 3: Propose block
