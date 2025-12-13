@@ -15,6 +15,12 @@ pub struct Validator {
     pub address: String,
     /// Total stake
     pub stake: u64,
+    /// Locked stake (during consensus participation)
+    pub locked_stake: u64,
+    /// Available stake (can be withdrawn)
+    pub available_stake: u64,
+    /// Epoch when stake unlocks (for unbonding)
+    pub unlock_epoch: Option<u64>,
     /// Emotional score
     pub emotional_score: u8,
     /// Reputation score
@@ -177,6 +183,9 @@ impl EmotionalStaking {
             id: id.clone(),
             address,
             stake: initial_stake,
+            locked_stake: 0,
+            available_stake: initial_stake,
+            unlock_epoch: None,
             emotional_score: 0,
             reputation: 100,
             is_active: true,
@@ -378,6 +387,118 @@ impl EmotionalStaking {
     /// Get reward history
     pub fn get_reward_history(&self) -> Vec<RewardDistribution> {
         self.reward_history.read().clone()
+    }
+
+    /// Lock stake for a validator during consensus participation
+    ///
+    /// This prevents nothing-at-stake attacks by locking stake while
+    /// the validator participates in consensus.
+    pub fn lock_stake(&self, validator_id: &str, amount: u64, _epochs: u64) -> Result<()> {
+        let mut validators = self.validators.write();
+        let validator = validators
+            .get_mut(validator_id)
+            .ok_or_else(|| ConsensusError::validator_not_found(validator_id))?;
+
+        if validator.available_stake < amount {
+            return Err(ConsensusError::insufficient_stake(
+                validator.available_stake,
+                amount,
+            ));
+        }
+
+        validator.available_stake = validator.available_stake.saturating_sub(amount);
+        validator.locked_stake = validator.locked_stake.saturating_add(amount);
+
+        Ok(())
+    }
+
+    /// Unlock stake for a validator after consensus participation
+    ///
+    /// This makes previously locked stake available again.
+    pub fn unlock_stake(&self, validator_id: &str) -> Result<()> {
+        let mut validators = self.validators.write();
+        let validator = validators
+            .get_mut(validator_id)
+            .ok_or_else(|| ConsensusError::validator_not_found(validator_id))?;
+
+        // Move all locked stake back to available
+        validator.available_stake = validator
+            .available_stake
+            .saturating_add(validator.locked_stake);
+        validator.locked_stake = 0;
+
+        Ok(())
+    }
+
+    /// Begin unbonding process for a validator
+    ///
+    /// Initiates the unbonding period. Stake will be locked for UNBONDING_PERIOD_EPOCHS
+    /// before it can be withdrawn. This prevents nothing-at-stake attacks.
+    pub fn begin_unbonding(&self, validator_id: &str, amount: u64) -> Result<()> {
+        let mut validators = self.validators.write();
+        let validator = validators
+            .get_mut(validator_id)
+            .ok_or_else(|| ConsensusError::validator_not_found(validator_id))?;
+
+        // Check if already unbonding
+        if validator.unlock_epoch.is_some() {
+            return Err(ConsensusError::config_error(
+                "Validator is already unbonding",
+            ));
+        }
+
+        // Check if enough available stake
+        if validator.available_stake < amount {
+            return Err(ConsensusError::insufficient_stake(
+                validator.available_stake,
+                amount,
+            ));
+        }
+
+        // Get current epoch and calculate unlock epoch
+        let current_epoch = *self.current_epoch.read();
+        let unlock_epoch = current_epoch + crate::UNBONDING_PERIOD_EPOCHS;
+
+        // Start unbonding
+        validator.available_stake = validator.available_stake.saturating_sub(amount);
+        validator.locked_stake = validator.locked_stake.saturating_add(amount);
+        validator.unlock_epoch = Some(unlock_epoch);
+        validator.is_active = false; // Deactivate validator during unbonding
+
+        Ok(())
+    }
+
+    /// Complete unbonding and withdraw stake
+    ///
+    /// Can only be called after the unbonding period has elapsed.
+    pub fn complete_unbonding(&self, validator_id: &str) -> Result<u64> {
+        let mut validators = self.validators.write();
+        let validator = validators
+            .get_mut(validator_id)
+            .ok_or_else(|| ConsensusError::validator_not_found(validator_id))?;
+
+        let current_epoch = *self.current_epoch.read();
+
+        // Check if unbonding
+        let unlock_epoch = validator
+            .unlock_epoch
+            .ok_or_else(|| ConsensusError::config_error("Validator is not unbonding"))?;
+
+        // Check if unbonding period has elapsed
+        if current_epoch < unlock_epoch {
+            return Err(ConsensusError::config_error(format!(
+                "Unbonding period not complete. {} epochs remaining",
+                unlock_epoch - current_epoch
+            )));
+        }
+
+        // Complete unbonding
+        let unbonded_amount = validator.locked_stake;
+        validator.stake = validator.stake.saturating_sub(unbonded_amount);
+        validator.locked_stake = 0;
+        validator.unlock_epoch = None;
+
+        Ok(unbonded_amount)
     }
 }
 

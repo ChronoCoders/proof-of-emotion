@@ -409,6 +409,14 @@ impl Transaction {
         crate::crypto::KeyPair::verify(&data_to_verify, &sig, &self.public_key)
             .map_err(|e| format!("Transaction signature verification failed: {}", e))
     }
+
+    /// Check if transaction has expired
+    ///
+    /// Transactions older than max_age_ms are considered expired and should be removed
+    /// from the pending pool to prevent memory leaks.
+    pub fn is_expired(&self, now: u64, max_age_ms: u64) -> bool {
+        now.saturating_sub(self.timestamp) > max_age_ms
+    }
 }
 
 impl Vote {

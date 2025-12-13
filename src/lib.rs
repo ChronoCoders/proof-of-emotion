@@ -1,12 +1,15 @@
 pub mod biometric;
+pub mod byzantine;
 pub mod consensus;
 pub mod crypto;
 pub mod error;
 pub mod staking;
 pub mod types;
 pub mod utils;
+pub mod zkp;
 
 pub use biometric::{BiometricDevice, BiometricReading, EmotionalProfile, EmotionalValidator};
+pub use byzantine::ByzantineDetector;
 pub use consensus::{
     ConsensusConfig, ConsensusMetrics, ConsensusRound, ConsensusState, ProofOfEmotionEngine,
     RoundPhase,
@@ -23,6 +26,8 @@ pub const DEFAULT_EMOTIONAL_THRESHOLD: u8 = 75;
 pub const DEFAULT_BYZANTINE_THRESHOLD: u8 = 67;
 pub const DEFAULT_EPOCH_DURATION: u64 = 30_000;
 pub const PROTOCOL_VERSION: &str = "1.0.0";
+/// Unbonding period in epochs (~21 days at 15min epochs)
+pub const UNBONDING_PERIOD_EPOCHS: u64 = 2016;
 
 #[cfg(test)]
 mod tests {

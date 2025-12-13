@@ -1,6 +1,7 @@
 //! Main Proof of Emotion consensus engine
 
 use crate::biometric::{BiometricDevice, BiometricSimulator, EmotionalValidator};
+use crate::byzantine::ByzantineDetector;
 use crate::error::{ConsensusError, Result};
 use crate::types::{Block, Transaction, Vote, VotingResult};
 use dashmap::DashMap;
@@ -130,6 +131,8 @@ pub struct ProofOfEmotionEngine {
     finalized_blocks: Arc<RwLock<Vec<Block>>>,
     /// Shutdown signal for graceful termination
     shutdown_signal: Arc<tokio::sync::Notify>,
+    /// Byzantine fault detector
+    byzantine_detector: Arc<ByzantineDetector>,
 }
 
 impl ProofOfEmotionEngine {
@@ -166,6 +169,7 @@ impl ProofOfEmotionEngine {
             metrics: Arc::new(RwLock::new(ConsensusMetrics::default())),
             finalized_blocks: Arc::new(RwLock::new(Vec::new())),
             shutdown_signal: Arc::new(tokio::sync::Notify::new()),
+            byzantine_detector: Arc::new(ByzantineDetector::new()),
         })
     }
 
@@ -214,6 +218,19 @@ impl ProofOfEmotionEngine {
 
         tokio::spawn(async move {
             engine.epoch_loop().await;
+        });
+
+        // Spawn periodic cleanup task to prevent memory leak from expired transactions
+        let cleanup_engine = Arc::clone(&self);
+        tokio::spawn(async move {
+            let mut cleanup_interval = time::interval(Duration::from_secs(60));
+            loop {
+                cleanup_interval.tick().await;
+                if !*cleanup_engine.is_running.read().await {
+                    break;
+                }
+                cleanup_engine.cleanup_transaction_pool().await;
+            }
         });
 
         Ok(())
@@ -380,11 +397,20 @@ impl ProofOfEmotionEngine {
 
         scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
 
-        Ok(scored
+        let committee: Vec<_> = scored
             .into_iter()
             .take(self.config.committee_size)
             .map(|(v, _)| v)
-            .collect())
+            .collect();
+
+        // TODO: Integrate stake locking when EmotionalStaking is added to consensus engine
+        // This prevents nothing-at-stake attacks by locking validator stake during consensus
+        // Example integration:
+        // for validator in &committee {
+        //     self.staking.lock_stake(validator.id(), validator.get_stake(), 1)?;
+        // }
+
+        Ok(committee)
     }
 
     /// Phase 3: Propose block
@@ -427,6 +453,19 @@ impl ProofOfEmotionEngine {
             .sign(&primary.key_pair)
             .map_err(|e| ConsensusError::internal(format!("Failed to sign block: {}", e)))?;
 
+        // Record proposal for Byzantine detection (double signing detection)
+        if let Err(e) = self
+            .byzantine_detector
+            .record_proposal(primary.id(), block.header.height, &block.hash)
+            .await
+        {
+            error!("🚨 Byzantine behavior detected during proposal: {}", e);
+            // Slash the validator for double signing
+            self.slash_validator(primary.id(), "Double signing detected")
+                .await?;
+            return Err(ConsensusError::invalid_block(e));
+        }
+
         Ok(block)
     }
 
@@ -439,6 +478,7 @@ impl ProofOfEmotionEngine {
         let mut votes = Vec::new();
         let mut approved_count = 0;
         let mut total_emotional_score = 0u32;
+        let mut byzantine_count = 0;
 
         // Get expected previous hash, height, and epoch for validation
         let finalized_blocks = self.finalized_blocks.read().await;
@@ -477,7 +517,28 @@ impl ProofOfEmotionEngine {
                 validator.get_emotional_score(),
                 approved,
             );
-            vote.reason = reason;
+            vote.reason = reason.clone();
+
+            // Record vote for Byzantine detection (double voting & equivocation detection)
+            if let Err(e) = self.byzantine_detector.record_vote(&vote).await {
+                warn!("🚨 Byzantine behavior detected during voting: {}", e);
+                byzantine_count += 1;
+
+                // Slash the validator for double voting or equivocation
+                if let Err(slash_err) = self
+                    .slash_validator(validator.id(), "Double voting or equivocation detected")
+                    .await
+                {
+                    error!(
+                        "Failed to slash validator {}: {}",
+                        validator.id(),
+                        slash_err
+                    );
+                }
+
+                // Skip this vote - don't count Byzantine votes
+                continue;
+            }
 
             if vote.approved {
                 approved_count += 1;
@@ -495,11 +556,17 @@ impl ProofOfEmotionEngine {
         let consensus_strength = ((approved_count as f64 / committee.len() as f64) * 100.0) as u8;
         let average_emotional_score = (total_emotional_score / participant_count as u32) as u8;
 
+        // Update Byzantine failure metrics
+        if byzantine_count > 0 {
+            let mut metrics = self.metrics.write().await;
+            metrics.byzantine_failures += byzantine_count as u64;
+        }
+
         Ok(VotingResult {
             success,
             consensus_strength,
             participant_count,
-            byzantine_count: 0,
+            byzantine_count,
             average_emotional_score,
             participants: committee.iter().map(|v| v.id().to_string()).collect(),
             votes,
@@ -541,7 +608,28 @@ impl ProofOfEmotionEngine {
             .iter()
             .map(|tx| tx.hash.clone())
             .collect();
-        pending.retain(|tx| !finalized_hashes.contains(&tx.hash));
+
+        // Remove finalized AND expired transactions to prevent memory leak
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64;
+        const MAX_TX_AGE: u64 = 5 * 60 * 1000; // 5 minutes
+
+        let initial_count = pending.len();
+        pending
+            .retain(|tx| !finalized_hashes.contains(&tx.hash) && !tx.is_expired(now, MAX_TX_AGE));
+        let removed_count = initial_count - pending.len();
+
+        if removed_count > 0 {
+            info!(
+                "🧹 Cleaned up {} transactions ({} finalized, {} expired)",
+                removed_count,
+                finalized_hashes.len(),
+                removed_count.saturating_sub(finalized_hashes.len())
+            );
+        }
+
         state.pending_transactions = pending.len();
 
         info!(
@@ -564,6 +652,34 @@ impl ProofOfEmotionEngine {
         Ok(())
     }
 
+    /// Cleanup expired transactions from the transaction pool
+    ///
+    /// This method removes transactions that have exceeded their TTL (5 minutes).
+    /// It runs periodically to prevent memory leaks from rejected/invalid transactions.
+    async fn cleanup_transaction_pool(&self) {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64;
+        const MAX_TX_AGE: u64 = 5 * 60 * 1000; // 5 minutes
+
+        let mut pending = self.pending_transactions.lock().await;
+        let initial_count = pending.len();
+        pending.retain(|tx| !tx.is_expired(now, MAX_TX_AGE));
+        let removed_count = initial_count - pending.len();
+
+        if removed_count > 0 {
+            info!(
+                "🧹 Periodic cleanup: removed {} expired transactions",
+                removed_count
+            );
+
+            // Update state
+            let mut state = self.state.write().await;
+            state.pending_transactions = pending.len();
+        }
+    }
+
     /// Get current consensus state
     pub async fn get_state(&self) -> ConsensusState {
         self.state.read().await.clone()
@@ -582,6 +698,44 @@ impl ProofOfEmotionEngine {
     /// Get finalized blocks
     pub async fn get_finalized_blocks(&self) -> Vec<Block> {
         self.finalized_blocks.read().await.clone()
+    }
+
+    /// Slash a validator for Byzantine behavior
+    ///
+    /// This reduces the validator's reputation and logs the offense
+    async fn slash_validator(&self, validator_id: &str, reason: &str) -> Result<()> {
+        if let Some(validator_ref) = self.validators.get(validator_id) {
+            let validator = validator_ref.value();
+
+            // Reduce reputation by 20 points for Byzantine behavior
+            validator.adjust_reputation(-20);
+
+            warn!(
+                "⚖️  Slashed validator {} (reputation now {}): {}",
+                validator_id,
+                validator.get_reputation(),
+                reason
+            );
+
+            Ok(())
+        } else {
+            Err(ConsensusError::invalid_block(format!(
+                "Validator {} not found for slashing",
+                validator_id
+            )))
+        }
+    }
+
+    /// Get Byzantine slashing events
+    pub async fn get_byzantine_events(&self) -> Vec<crate::staking::SlashingEvent> {
+        self.byzantine_detector.get_slashing_events().await
+    }
+
+    /// Cleanup old Byzantine detection data
+    pub async fn cleanup_byzantine_data(&self) {
+        let current_epoch = self.state.read().await.current_epoch;
+        // Keep last 100 epochs of data
+        self.byzantine_detector.cleanup_old_data(current_epoch, 100);
     }
 }
 
