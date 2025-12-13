@@ -445,25 +445,54 @@ impl EmotionalValidator {
 }
 
 /// Production-quality biometric simulator for testing
+///
+/// **IMPORTANT: THIS IS FOR TESTING ONLY**
+/// Production deployments MUST use real biometric hardware with certified sensors.
+/// This simulator provides realistic-looking data for development and testing purposes,
+/// but should never be used in production environments where actual emotional validation
+/// is required for consensus security.
+///
+/// The simulator mixes deterministic patterns (based on validator ID) with random noise
+/// to prevent prediction attacks while maintaining testability.
 pub struct BiometricSimulator {
     device_id: String,
     validator_seed: u64,
+    /// Random seed unique to this instance (prevents prediction attacks)
+    random_seed: u64,
 }
 
 impl BiometricSimulator {
     /// Create a new biometric simulator
+    ///
+    /// Each instance gets a unique random seed to prevent prediction attacks.
+    /// The validator_seed provides deterministic baseline patterns, while random_seed
+    /// adds unpredictable noise.
     pub fn new(device_id: String, validator_id: &str) -> Self {
         let validator_seed = validator_id
             .bytes()
             .fold(0u64, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u64));
 
+        // Generate random seed using system entropy
+        let random_seed = {
+            use std::collections::hash_map::RandomState;
+            use std::hash::{BuildHasher, Hash, Hasher};
+            let random_state = RandomState::new();
+            let mut hasher = random_state.build_hasher();
+            std::time::SystemTime::now().hash(&mut hasher);
+            validator_id.hash(&mut hasher);
+            hasher.finish()
+        };
+
         Self {
             device_id,
             validator_seed,
+            random_seed,
         }
     }
 
-    /// Generate realistic heart rate
+    /// Generate realistic heart rate with random noise
+    ///
+    /// Mixes deterministic patterns with random noise to prevent prediction.
     fn generate_heart_rate(&self, timestamp: u64) -> f64 {
         let baseline = 60.0 + (self.validator_seed % 25) as f64;
         let time_of_day =
@@ -474,10 +503,20 @@ impl BiometricSimulator {
         let stress_variation =
             0.9 + 0.2 * ((self.validator_seed as f64 + timestamp as f64 / 300000.0).sin());
 
-        baseline * circadian_factor * stress_variation
+        let deterministic = baseline * circadian_factor * stress_variation;
+
+        // Add random noise: ±2.5 BPM
+        let random_noise = {
+            let hash = (self.random_seed ^ timestamp).wrapping_mul(0x5851_F42D_4C95_7F2D);
+            (hash as f64 / u64::MAX as f64) - 0.5
+        };
+
+        deterministic + (random_noise * 5.0)
     }
 
-    /// Generate realistic stress level
+    /// Generate realistic stress level with random noise
+    ///
+    /// Mixes deterministic patterns with random noise to prevent prediction.
     fn generate_stress_level(&self, timestamp: u64) -> f64 {
         let base_stress = (self.validator_seed % 40) as f64;
         let time_of_day =
@@ -489,10 +528,21 @@ impl BiometricSimulator {
             0.8
         };
 
-        (base_stress * work_factor).min(100.0)
+        let deterministic = base_stress * work_factor;
+
+        // Add random noise: ±5 points
+        let random_noise = {
+            let hash =
+                (self.random_seed ^ timestamp ^ 0xDEADBEEF).wrapping_mul(0x5851_F42D_4C95_7F2D);
+            (hash as f64 / u64::MAX as f64) - 0.5
+        };
+
+        (deterministic + (random_noise * 10.0)).clamp(0.0, 100.0)
     }
 
-    /// Generate realistic focus level
+    /// Generate realistic focus level with random noise
+    ///
+    /// Mixes deterministic patterns with random noise to prevent prediction.
     fn generate_focus_level(&self, timestamp: u64) -> f64 {
         let base_focus = 60.0 + ((self.validator_seed % 30) as f64);
         let time_of_day =
@@ -505,7 +555,16 @@ impl BiometricSimulator {
                     (2.0 * std::f64::consts::PI * (time_of_day - 0.7)).sin(),
                 );
 
-        (base_focus * circadian_focus).min(100.0)
+        let deterministic = base_focus * circadian_focus;
+
+        // Add random noise: ±3 points
+        let random_noise = {
+            let hash =
+                (self.random_seed ^ timestamp ^ 0xCAFEBABE).wrapping_mul(0x5851_F42D_4C95_7F2D);
+            (hash as f64 / u64::MAX as f64) - 0.5
+        };
+
+        (deterministic + (random_noise * 6.0)).clamp(0.0, 100.0)
     }
 }
 

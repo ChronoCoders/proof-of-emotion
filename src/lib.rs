@@ -6,6 +6,7 @@ pub mod error;
 pub mod staking;
 pub mod types;
 pub mod utils;
+pub mod zkp;
 
 pub use biometric::{BiometricDevice, BiometricReading, EmotionalProfile, EmotionalValidator};
 pub use byzantine::ByzantineDetector;
