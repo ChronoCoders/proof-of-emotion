@@ -12,7 +12,7 @@ Proof of Emotion is a next-generation consensus mechanism that combines traditio
 - ⚡ **High Performance**: Optimized for 1000+ validators with parallel processing
 - 🔒 **Cryptographic Security**: ECDSA signatures, Merkle proofs, and optional ZK-proof support
 - 💰 **Economic Incentives**: Stake-weighted rewards with emotional multipliers
-- 🧪 **Production Ready**: 44 passing tests, zero warnings, comprehensive documentation
+- 🧪 **Comprehensive Testing**: 49 passing tests including Byzantine fault detection, load testing, and property-based tests
 
 ## Quick Start
 
@@ -79,16 +79,29 @@ cargo run --example staking_rewards
 - Commission-based rewards
 - Graduated slashing for violations
 
-## Performance Metrics
+## Performance Benchmarks
+
+Configuration: 21 validators, 30s epochs, 1000 tx/block
 
 | Metric | Value |
 |--------|-------|
+| Block Time | 30 seconds |
+| Transactions per Block | 1,000 |
+| Actual TPS (Measured) | ~33 (1000 tx/block, 30s epochs) |
+| Theoretical Max TPS | ~300 (optimized batching, 10s epochs) |
+| Committee Selection | 150ms |
+| Block Validation | 200ms |
+| Voting Phase | 8s |
+| Finalization | 2s |
 | Max Validators | 1,000+ |
-| Block Time | 30 seconds (configurable) |
-| Theoretical TPS | 10,000+ |
 | Memory per Node | < 500MB |
 | Byzantine Tolerance | 33% malicious nodes |
 | Emotional Threshold | 75% (configurable) |
+
+**To improve TPS:**
+- Reduce epoch duration to 10s → 100 TPS
+- Increase tx/block to 3000 → 100 TPS
+- Parallel validation → 2x improvement
 
 ## Installation
 
@@ -218,6 +231,53 @@ cargo bench staking
 - [Testing Guide](TESTING_GUIDE.md) - Comprehensive testing strategy
 - [Windows Notes](WINDOWS_NOTES.md) - Windows-specific instructions
 - [Project Summary](PROJECT_SUMMARY.md) - Technical deep dive
+- [Security Policy](SECURITY.md) - Security considerations and responsible disclosure
+
+## ⚠️ Security Considerations
+
+### Current Status
+- 🔴 **NOT PRODUCTION READY**
+- 🔴 **NOT AUDITED**
+- 🔴 **EXPERIMENTAL RESEARCH**
+
+### Known Security Issues
+
+1. **Biometric Privacy**
+   - Biometric data hashes stored on-chain
+   - Potential correlation attacks
+   - Consider ZK-proofs for production
+
+2. **Centralization Risks**
+   - Biometric devices can be compromised
+   - No decentralized biometric verification
+   - Single point of failure in device trust
+
+3. **Attack Vectors**
+   - Nothing-at-stake (mitigated by stake locking)
+   - Biometric spoofing (requires hardware security)
+   - Long-range attacks (need checkpointing)
+   - Eclipse attacks (need peer diversity)
+
+4. **Economic Assumptions**
+   - Emotional scoring is gameable
+   - Validators may optimize for rewards over authenticity
+   - Needs formal game theory analysis
+
+### Before Production
+
+- [ ] External security audit ($50k-100k)
+- [ ] Formal verification of consensus safety
+- [ ] Penetration testing
+- [ ] Economic analysis
+- [ ] Real biometric hardware integration
+- [ ] Bug bounty program
+
+### Responsible Disclosure
+
+If you discover a security vulnerability, please email:
+**security@chronocoders.example** (do NOT open public issues)
+
+For more details, see [SECURITY.md](SECURITY.md).
 
 ## Roadmap
 
@@ -280,4 +340,13 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ---
 
-**⚠️ Disclaimer**: This is experimental consensus mechanism research. Not audited for production use. Use at your own risk.
+**⚠️ IMPORTANT DISCLAIMER**
+
+This is an **experimental consensus mechanism for research purposes only**.
+
+- **NOT audited** for production use
+- **NOT tested** with real biometric hardware
+- **NOT secure** against all known attack vectors
+- **NOT suitable** for handling real value or sensitive data
+
+Use at your own risk. See [SECURITY.md](SECURITY.md) for detailed security considerations.
