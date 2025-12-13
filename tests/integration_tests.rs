@@ -212,3 +212,242 @@ async fn test_emotional_threshold_enforcement() {
     let score = validator.get_emotional_score();
     assert!(score > 0, "Emotional score should be > 0 after update");
 }
+
+// ============================================================================
+// BYZANTINE FAULT DETECTION TESTS (Issue 7.1)
+// ============================================================================
+
+#[tokio::test]
+async fn test_double_voting_detection() {
+    use proof_of_emotion::byzantine::ByzantineDetector;
+
+    let detector = Arc::new(ByzantineDetector::new());
+
+    // Create first vote (approve)
+    let vote1 = Vote::new(
+        "byzantine-validator".to_string(),
+        "block-hash-abc".to_string(),
+        1, // epoch
+        0, // round
+        80,
+        true, // approved
+    );
+
+    detector.record_vote(&vote1).await.unwrap();
+
+    // Byzantine validator tries to vote differently on same block
+    let vote2 = Vote::new(
+        "byzantine-validator".to_string(),
+        "block-hash-abc".to_string(),
+        1, // same epoch
+        0, // same round
+        80,
+        false, // rejected - Byzantine behavior!
+    );
+
+    // Should detect double voting
+    let result = detector.record_vote(&vote2).await;
+    assert!(result.is_err(), "Double voting should be detected");
+    assert!(result.unwrap_err().contains("Double voting"));
+
+    // Check slashing event was created
+    let events = detector.get_slashing_events().await;
+    assert!(!events.is_empty(), "Slashing event should be created");
+    assert_eq!(events[0].validator_id, "byzantine-validator");
+}
+
+#[tokio::test]
+async fn test_equivocation_detection() {
+    use proof_of_emotion::byzantine::ByzantineDetector;
+
+    let detector = Arc::new(ByzantineDetector::new());
+
+    // Vote on first block
+    let vote1 = Vote::new(
+        "equivocating-validator".to_string(),
+        "block-hash-1".to_string(),
+        1, // epoch
+        0,
+        80,
+        true,
+    );
+    detector.record_vote(&vote1).await.unwrap();
+
+    // Vote on different block in same epoch - equivocation!
+    let vote2 = Vote::new(
+        "equivocating-validator".to_string(),
+        "block-hash-2".to_string(),
+        1, // same epoch - equivocation!
+        0,
+        80,
+        true,
+    );
+
+    let result = detector.record_vote(&vote2).await;
+    assert!(result.is_err(), "Equivocation should be detected");
+
+    let events = detector.get_slashing_events().await;
+    assert!(!events.is_empty());
+}
+
+#[tokio::test]
+async fn test_double_block_proposal() {
+    use proof_of_emotion::byzantine::ByzantineDetector;
+
+    let detector = Arc::new(ByzantineDetector::new());
+
+    // Propose first block at height 1
+    detector
+        .record_proposal("double-signer", 1, "block-hash-A")
+        .await
+        .unwrap();
+
+    // Propose different block at same height - double signing!
+    let result = detector
+        .record_proposal("double-signer", 1, "block-hash-B")
+        .await;
+
+    assert!(result.is_err(), "Double signing should be detected");
+    assert!(result.unwrap_err().contains("Double signing"));
+
+    let events = detector.get_slashing_events().await;
+    assert!(!events.is_empty());
+    assert_eq!(events[0].validator_id, "double-signer");
+}
+
+#[tokio::test]
+async fn test_invalid_block_rejection() {
+    let validator = EmotionalValidator::new("test-validator", 10_000).unwrap();
+
+    // Create a block with transactions
+    let tx = Transaction::new("sender".to_string(), "receiver".to_string(), 1000, 10);
+    let mut block = Block::new(
+        1,
+        0,
+        "0".repeat(64),
+        "test-validator".to_string(),
+        80,
+        vec![tx],
+    );
+
+    // Sign the block
+    block.sign(&validator.key_pair).unwrap();
+
+    // Tamper with merkle root
+    block.header.merkle_root = "invalid_merkle_root".to_string();
+
+    // Validation should fail
+    let result = validator.validate_block(&block, &"0".repeat(64), 1, 0);
+    assert!(result.is_err(), "Invalid merkle root should be rejected");
+}
+
+#[tokio::test]
+async fn test_invalid_signature_rejection() {
+    let validator1 = EmotionalValidator::new("validator-1", 10_000).unwrap();
+    let validator2 = EmotionalValidator::new("validator-2", 10_000).unwrap();
+
+    // Create and sign block with validator1
+    let tx = Transaction::new("sender".to_string(), "receiver".to_string(), 1000, 10);
+    let mut block = Block::new(
+        1,
+        0,
+        "0".repeat(64),
+        "validator-1".to_string(),
+        80,
+        vec![tx],
+    );
+
+    block.sign(&validator1.key_pair).unwrap();
+
+    // Replace signature with validator2's signature (invalid!)
+    let fake_message = b"fake";
+    let fake_sig = validator2.key_pair.sign(fake_message).unwrap();
+    block.signature = serde_json::to_string(&fake_sig).unwrap();
+    block.proposer_public_key = validator2.key_pair.public_key_hex();
+
+    // Validation should fail due to invalid signature
+    let result = validator1.validate_block(&block, &"0".repeat(64), 1, 0);
+    assert!(result.is_err(), "Invalid signature should be rejected");
+}
+
+#[tokio::test]
+async fn test_future_timestamp_rejection() {
+    let validator = EmotionalValidator::new("test-validator", 10_000).unwrap();
+
+    let tx = Transaction::new("sender".to_string(), "receiver".to_string(), 1000, 10);
+    let mut block = Block::new(
+        1,
+        0,
+        "0".repeat(64),
+        "test-validator".to_string(),
+        80,
+        vec![tx],
+    );
+
+    // Set timestamp 10 seconds in the future
+    let future_time = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64
+        + 10_000;
+    block.header.timestamp = future_time;
+    block.sign(&validator.key_pair).unwrap();
+
+    // Validation should fail
+    let result = validator.validate_block(&block, &"0".repeat(64), 1, 0);
+    assert!(
+        result.is_err(),
+        "Future timestamp should be rejected"
+    );
+}
+
+#[tokio::test]
+async fn test_replay_attack_prevention() {
+    let validator = EmotionalValidator::new("test-validator", 10_000).unwrap();
+
+    // Create block for epoch 1
+    let tx = Transaction::new("sender".to_string(), "receiver".to_string(), 1000, 10);
+    let mut block = Block::new(
+        1,
+        1, // epoch 1
+        "0".repeat(64),
+        "test-validator".to_string(),
+        80,
+        vec![tx],
+    );
+
+    block.sign(&validator.key_pair).unwrap();
+
+    // Try to validate with epoch 2 (current epoch)
+    let result = validator.validate_block(&block, &"0".repeat(64), 1, 2);
+    assert!(
+        result.is_err(),
+        "Old epoch block should be rejected (replay attack prevention)"
+    );
+    assert!(result.unwrap_err().contains("Epoch mismatch"));
+}
+
+#[tokio::test]
+async fn test_transaction_expiration() {
+    // Create transaction
+    let tx = Transaction::new("sender".to_string(), "receiver".to_string(), 1000, 10);
+
+    // Transaction should not be expired immediately
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64;
+    let max_age = 5 * 60 * 1000; // 5 minutes
+
+    assert!(
+        !tx.is_expired(now, max_age),
+        "Fresh transaction should not be expired"
+    );
+
+    // Transaction should be expired after TTL
+    let future_time = now + max_age + 1000; // 1 second past expiry
+    assert!(
+        tx.is_expired(future_time, max_age),
+        "Old transaction should be expired"
+    );
+}
