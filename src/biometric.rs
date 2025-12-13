@@ -142,7 +142,7 @@ impl EmotionalValidator {
 
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
+            .map_err(|e| ConsensusError::internal(format!("System time error: {}", e)))?
             .as_millis() as u64;
 
         let profile = EmotionalProfile {
@@ -253,7 +253,8 @@ impl EmotionalValidator {
         let multimodal_bonus = (unique_types.len() * 5).min(20) as u8;
 
         let timestamps: Vec<_> = readings.iter().map(|r| r.timestamp).collect();
-        let time_span = timestamps.iter().max().unwrap() - timestamps.iter().min().unwrap();
+        // Safe to unwrap: timestamps is non-empty (checked at function start)
+        let time_span = timestamps.iter().max().copied().unwrap_or(0) - timestamps.iter().min().copied().unwrap_or(0);
         let temporal_bonus = if time_span < 5000 {
             10
         } else if time_span < 60000 {
@@ -404,7 +405,7 @@ impl EmotionalValidator {
         // 6. Verify timestamp is reasonable (not in future, not too old)
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
+            .map_err(|e| format!("System time error: {}", e))?
             .as_millis() as u64;
 
         // Block timestamp should not be more than 5 seconds in the future
@@ -572,7 +573,7 @@ impl BiometricDevice for BiometricSimulator {
     fn collect_readings(&self) -> Result<Vec<BiometricReading>> {
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
+            .map_err(|e| ConsensusError::internal(format!("System time error: {}", e)))?
             .as_millis() as u64;
 
         Ok(vec![

@@ -99,7 +99,7 @@ impl ByzantineDetector {
             block_hash: block_hash.to_string(),
             timestamp: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
+                .map_err(|e| format!("System time error: {}", e))?
                 .as_millis() as u64,
         };
 
@@ -294,7 +294,7 @@ impl ByzantineDetector {
             amount: 0,           // Will be calculated based on stake
             timestamp: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
+                .expect("System time before UNIX_EPOCH - clock may be misconfigured")
                 .as_millis() as u64,
             evidence,
         }
@@ -324,7 +324,7 @@ impl ByzantineDetector {
             amount: 0,           // Will be calculated based on stake
             timestamp: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
+                .expect("System time before UNIX_EPOCH - clock may be misconfigured")
                 .as_millis() as u64,
             evidence,
         }
@@ -355,7 +355,7 @@ impl ByzantineDetector {
             amount: 0,          // Will be calculated based on stake
             timestamp: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
+                .expect("System time before UNIX_EPOCH - clock may be misconfigured")
                 .as_millis() as u64,
             evidence,
         }

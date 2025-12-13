@@ -146,7 +146,7 @@ impl EmotionalProof {
     ) -> Result<Self> {
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
+            .map_err(|e| crate::error::ConsensusError::internal(format!("System time error: {}", e)))?
             .as_millis() as u64;
 
         let consensus_strength = Self::calculate_consensus_strength(&emotional_scores);
@@ -162,8 +162,10 @@ impl EmotionalProof {
         let proof_data = format!(
             "{}:{}:{}:{}:{}",
             validators.join(","),
-            serde_json::to_string(&emotional_scores).unwrap(),
-            serde_json::to_string(&biometric_hashes).unwrap(),
+            serde_json::to_string(&emotional_scores)
+                .map_err(|e| crate::error::ConsensusError::internal(format!("Serialization error: {}", e)))?,
+            serde_json::to_string(&biometric_hashes)
+                .map_err(|e| crate::error::ConsensusError::internal(format!("Serialization error: {}", e)))?,
             temporal_window,
             timestamp
         );
@@ -218,8 +220,16 @@ impl EmotionalProof {
         for validator in validators {
             hasher.update(validator.as_bytes());
         }
-        hasher.update(serde_json::to_string(emotional_scores).unwrap().as_bytes());
-        hasher.update(serde_json::to_string(biometric_hashes).unwrap().as_bytes());
+        hasher.update(
+            serde_json::to_string(emotional_scores)
+                .expect("Failed to serialize emotional scores")
+                .as_bytes(),
+        );
+        hasher.update(
+            serde_json::to_string(biometric_hashes)
+                .expect("Failed to serialize biometric hashes")
+                .as_bytes(),
+        );
         hasher.update(temporal_window.to_le_bytes());
         hasher.update(timestamp.to_le_bytes());
 
@@ -231,8 +241,10 @@ impl EmotionalProof {
         let proof_data = format!(
             "{}:{}:{}:{}:{}",
             self.validators.join(","),
-            serde_json::to_string(&self.emotional_scores).unwrap(),
-            serde_json::to_string(&self.biometric_hashes).unwrap(),
+            serde_json::to_string(&self.emotional_scores)
+                .map_err(|e| crate::error::ConsensusError::internal(format!("Serialization error: {}", e)))?,
+            serde_json::to_string(&self.biometric_hashes)
+                .map_err(|e| crate::error::ConsensusError::internal(format!("Serialization error: {}", e)))?,
             self.temporal_window,
             self.timestamp
         );
@@ -258,7 +270,7 @@ impl EmotionalProof {
 
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
+            .map_err(|e| crate::error::ConsensusError::internal(format!("System time error: {}", e)))?
             .as_millis() as u64;
 
         if now - self.timestamp > 300_000 {

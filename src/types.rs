@@ -144,7 +144,7 @@ impl Block {
     ) -> Self {
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
+            .expect("System time before UNIX_EPOCH - clock may be misconfigured")
             .as_millis() as u64;
 
         let merkle_root = Self::calculate_merkle_root(&transactions);
@@ -312,7 +312,7 @@ impl Transaction {
     pub fn new(from: String, to: String, amount: u64, fee: u64) -> Self {
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
+            .expect("System time before UNIX_EPOCH - clock may be misconfigured")
             .as_millis() as u64;
 
         let hash = Self::calculate_tx_hash(&from, &to, amount, fee, timestamp);
@@ -431,7 +431,7 @@ impl Vote {
     ) -> Self {
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
+            .expect("System time before UNIX_EPOCH - clock may be misconfigured")
             .as_millis() as u64;
 
         Self {
