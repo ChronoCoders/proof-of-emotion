@@ -6,6 +6,8 @@ use crate::error::{ConsensusError, Result};
 use crate::types::{Block, Transaction, Vote, VotingResult};
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
+use std::cmp::Ordering;
+use std::collections::BinaryHeap;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{Mutex, RwLock};
@@ -99,18 +101,59 @@ pub struct ConsensusRound {
 /// Metrics for consensus performance
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ConsensusMetrics {
+    // Existing metrics
     /// Total epochs processed
     pub total_epochs: u64,
     /// Successful epochs
     pub successful_epochs: u64,
     /// Failed epochs
     pub failed_epochs: u64,
-    /// Average epoch duration
+    /// Average epoch duration in milliseconds
     pub average_duration_ms: u64,
-    /// Average emotional score
+    /// Average emotional score across all epochs
     pub average_emotional_score: u8,
     /// Total Byzantine failures detected
     pub byzantine_failures: u64,
+
+    // NEW: Detailed metrics
+    /// Total blocks rejected during validation
+    pub rejected_blocks: u64,
+    /// Total votes rejected (invalid signatures, wrong epoch, etc.)
+    pub rejected_votes: u64,
+    /// Number of rounds that timed out
+    pub timeout_rounds: u64,
+    /// Epochs failed due to low emotional fitness
+    pub emotional_failures: u64,
+    /// Detected network partitions (future use)
+    pub network_partitions: u64,
+    /// Fork detections (conflicting blocks at same height)
+    pub fork_detections: u64,
+
+    // NEW: Performance metrics
+    /// Total blocks successfully finalized
+    pub blocks_finalized: u64,
+    /// Total transactions processed across all blocks
+    pub transactions_processed: u64,
+    /// Average committee size across epochs
+    pub average_committee_size: f64,
+    /// Average validator participation rate (percentage)
+    pub average_participation_rate: f64,
+
+    // NEW: Timing metrics (in milliseconds)
+    /// Average time spent in block proposal phase
+    pub average_proposal_time_ms: u64,
+    /// Average time spent in voting phase
+    pub average_voting_time_ms: u64,
+    /// Average time spent in finalization phase
+    pub average_finalization_time_ms: u64,
+
+    // NEW: Economic metrics
+    /// Total rewards distributed to validators (future integration)
+    pub total_rewards_distributed: u64,
+    /// Total stake slashed from validators
+    pub total_stake_slashed: u64,
+    /// Number of currently active validators
+    pub active_validators: usize,
 }
 
 /// Main Proof of Emotion consensus engine
@@ -183,12 +226,13 @@ impl ProofOfEmotionEngine {
         }
 
         let id = validator.id().to_string();
+        let stake = validator.get_stake();
         self.validators.insert(id.clone(), Arc::new(validator));
 
         info!(
             "✅ Validator {} registered with {} POE stake",
             id,
-            self.validators.get(&id).unwrap().get_stake()
+            stake
         );
 
         Ok(())
@@ -375,33 +419,83 @@ impl ProofOfEmotionEngine {
         Ok(eligible)
     }
 
-    /// Phase 2: Select committee
+    /// Phase 2: Select committee (optimized with BinaryHeap)
+    ///
+    /// Uses a min-heap to efficiently select the top k validators by combined score.
+    /// Complexity: O(n log k) instead of O(n log n) where k = committee_size
     async fn select_committee(
         &self,
         eligible: &[Arc<EmotionalValidator>],
     ) -> Result<Vec<Arc<EmotionalValidator>>> {
-        if eligible.len() < self.config.committee_size {
+        if eligible.len() <= self.config.committee_size {
             return Ok(eligible.to_vec());
         }
 
-        let mut scored: Vec<_> = eligible
-            .iter()
-            .map(|v| {
-                let score = v.get_emotional_score() as f64;
-                let stake_weight = (v.get_stake() as f64).sqrt();
-                let reputation = v.get_reputation() as f64 / 100.0;
-                let combined_score = score * stake_weight * reputation;
-                (Arc::clone(v), combined_score)
-            })
-            .collect();
+        // Helper struct for ordering validators by score in a heap
+        struct OrderedValidator {
+            score: u64, // Use integer to avoid f64 comparison issues
+            validator: Arc<EmotionalValidator>,
+        }
 
-        scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+        impl PartialEq for OrderedValidator {
+            fn eq(&self, other: &Self) -> bool {
+                self.score == other.score
+            }
+        }
 
-        let committee: Vec<_> = scored
-            .into_iter()
-            .take(self.config.committee_size)
-            .map(|(v, _)| v)
-            .collect();
+        impl Eq for OrderedValidator {}
+
+        impl PartialOrd for OrderedValidator {
+            fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+                Some(self.cmp(other))
+            }
+        }
+
+        impl Ord for OrderedValidator {
+            fn cmp(&self, other: &Self) -> Ordering {
+                // Reverse ordering for max-heap behavior (highest scores first)
+                other.score.cmp(&self.score)
+            }
+        }
+
+        // Use a binary heap to maintain top k validators
+        let mut heap = BinaryHeap::with_capacity(self.config.committee_size + 1);
+
+        for validator in eligible {
+            let score = validator.get_emotional_score() as f64;
+            let stake_weight = (validator.get_stake() as f64).sqrt();
+            let reputation = validator.get_reputation() as f64 / 100.0;
+            let combined_score = score * stake_weight * reputation;
+
+            // Convert to integer score for reliable comparison
+            // Scale by 1000 to preserve precision
+            let integer_score = (combined_score * 1000.0) as u64;
+
+            heap.push(OrderedValidator {
+                score: integer_score,
+                validator: Arc::clone(validator),
+            });
+
+            // Keep heap size bounded to committee_size
+            if heap.len() > self.config.committee_size {
+                heap.pop();
+            }
+        }
+
+        // Extract validators from heap
+        let committee: Vec<_> = heap.into_iter().map(|ov| ov.validator).collect();
+
+        // Update committee size metrics
+        let mut metrics = self.metrics.write().await;
+        let committee_size = committee.len() as f64;
+        if metrics.total_epochs == 0 {
+            metrics.average_committee_size = committee_size;
+        } else {
+            metrics.average_committee_size =
+                (metrics.average_committee_size * metrics.total_epochs as f64 + committee_size)
+                / (metrics.total_epochs + 1) as f64;
+        }
+        drop(metrics);
 
         // TODO: Integrate stake locking when EmotionalStaking is added to consensus engine
         // This prevents nothing-at-stake attacks by locking validator stake during consensus
@@ -423,18 +517,13 @@ impl ProofOfEmotionEngine {
         let transactions: Vec<_> = pending_txs.iter().take(1000).cloned().collect();
         drop(pending_txs);
 
-        let last_height = self.finalized_blocks.read().await.len() as u64;
-        let previous_hash = if last_height > 0 {
-            self.finalized_blocks
-                .read()
-                .await
-                .last()
-                .unwrap()
-                .hash
-                .clone()
-        } else {
-            "0".repeat(64)
-        };
+        let finalized_blocks = self.finalized_blocks.read().await;
+        let last_height = finalized_blocks.len() as u64;
+        let previous_hash = finalized_blocks
+            .last()
+            .map(|block| block.hash.clone())
+            .unwrap_or_else(|| "0".repeat(64));
+        drop(finalized_blocks);
 
         // Get current epoch for replay attack prevention
         let current_epoch = self.state.read().await.current_epoch;
@@ -482,11 +571,10 @@ impl ProofOfEmotionEngine {
 
         // Get expected previous hash, height, and epoch for validation
         let finalized_blocks = self.finalized_blocks.read().await;
-        let expected_previous_hash = if finalized_blocks.is_empty() {
-            "0".repeat(64)
-        } else {
-            finalized_blocks.last().unwrap().hash.clone()
-        };
+        let expected_previous_hash = finalized_blocks
+            .last()
+            .map(|block| block.hash.clone())
+            .unwrap_or_else(|| "0".repeat(64));
         let expected_height = finalized_blocks.len() as u64 + 1;
         drop(finalized_blocks);
 
@@ -587,7 +675,7 @@ impl ProofOfEmotionEngine {
             byzantine_failures: voting_result.byzantine_count,
             finalized_at: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
+                .map_err(|e| ConsensusError::internal(format!("System time error: {}", e)))?
                 .as_millis() as u64,
             participants: voting_result.participants,
         });
@@ -612,7 +700,7 @@ impl ProofOfEmotionEngine {
         // Remove finalized AND expired transactions to prevent memory leak
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
+            .map_err(|e| ConsensusError::internal(format!("System time error: {}", e)))?
             .as_millis() as u64;
         const MAX_TX_AGE: u64 = 5 * 60 * 1000; // 5 minutes
 
@@ -638,6 +726,22 @@ impl ProofOfEmotionEngine {
             block.transactions.len()
         );
 
+        // Update comprehensive metrics
+        let mut metrics = self.metrics.write().await;
+        metrics.blocks_finalized += 1;
+        metrics.transactions_processed += block.transactions.len() as u64;
+        metrics.active_validators = self.validators.len();
+
+        // Update average participation rate
+        let new_participation = (voting_result.participant_count as f64 / self.validators.len() as f64) * 100.0;
+        if metrics.blocks_finalized == 1 {
+            metrics.average_participation_rate = new_participation;
+        } else {
+            metrics.average_participation_rate =
+                (metrics.average_participation_rate * (metrics.blocks_finalized - 1) as f64
+                 + new_participation) / metrics.blocks_finalized as f64;
+        }
+
         Ok(())
     }
 
@@ -659,7 +763,10 @@ impl ProofOfEmotionEngine {
     async fn cleanup_transaction_pool(&self) {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or_else(|e| {
+                warn!("System time error during cleanup: {}, using max duration", e);
+                std::time::Duration::from_secs(u64::MAX)
+            })
             .as_millis() as u64;
         const MAX_TX_AGE: u64 = 5 * 60 * 1000; // 5 minutes
 

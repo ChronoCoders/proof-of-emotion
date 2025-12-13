@@ -365,7 +365,7 @@ impl EmotionalStaking {
     fn current_timestamp() -> u64 {
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
+            .expect("System time before UNIX_EPOCH - clock may be misconfigured")
             .as_millis() as u64
     }
 
