@@ -231,7 +231,6 @@ cargo bench staking
 - [Testing Guide](TESTING_GUIDE.md) - Comprehensive testing strategy
 - [Windows Notes](WINDOWS_NOTES.md) - Windows-specific instructions
 - [Project Summary](PROJECT_SUMMARY.md) - Technical deep dive
-- [Security Policy](SECURITY.md) - Security considerations and responsible disclosure
 
 ## ⚠️ Security Considerations
 
@@ -277,8 +276,6 @@ cargo bench staking
 If you discover a security vulnerability, please email:
 **security@chronocoders.example** (do NOT open public issues)
 
-For more details, see [SECURITY.md](SECURITY.md).
-
 ## Roadmap
 
 ### Phase 1: Core Implementation ✅ (Current)
@@ -323,10 +320,6 @@ Contributions are welcome! Please:
 - Format code with `cargo fmt`
 - Update documentation as needed
 
-## License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
 ## Acknowledgments
 
 - Built with [Rust](https://www.rust-lang.org/) and [Tokio](https://tokio.rs/)
@@ -349,4 +342,4 @@ This is an **experimental consensus mechanism for research purposes only**.
 - **NOT secure** against all known attack vectors
 - **NOT suitable** for handling real value or sensitive data
 
-Use at your own risk. See [SECURITY.md](SECURITY.md) for detailed security considerations.
+Use at your own risk. 
