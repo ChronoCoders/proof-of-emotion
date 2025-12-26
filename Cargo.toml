@@ -35,9 +35,10 @@ lru = "0.12"
 chrono = { version = "0.4", features = ["serde"] }
 instant = "0.1"
 
-# Logging
+# Logging and Monitoring
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+prometheus = "0.13"
 
 # Error handling
 thiserror = "1.0"

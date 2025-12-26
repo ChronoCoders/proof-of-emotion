@@ -67,6 +67,10 @@ pub struct ConsensusState {
     pub last_finalized_height: u64,
     /// Number of pending transactions
     pub pending_transactions: usize,
+    /// Total number of registered validators
+    pub total_validators: usize,
+    /// Number of currently active validators
+    pub active_validators: usize,
 }
 
 /// Phase of a consensus round
@@ -214,6 +218,8 @@ impl ProofOfEmotionEngine {
                 participation_rate: 0,
                 last_finalized_height: 0,
                 pending_transactions: 0,
+                total_validators: 0,
+                active_validators: 0,
             })),
             is_running: Arc::new(RwLock::new(false)),
             metrics: Arc::new(RwLock::new(ConsensusMetrics::default())),

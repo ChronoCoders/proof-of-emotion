@@ -5,6 +5,8 @@ pub mod consensus;
 pub mod crypto;
 pub mod error;
 pub mod fork;
+pub mod health;
+pub mod metrics;
 pub mod staking;
 pub mod types;
 pub mod utils;
@@ -20,6 +22,8 @@ pub use consensus::{
 pub use crypto::{EmotionalProof, KeyPair, Signature};
 pub use error::{ConsensusError, Result};
 pub use fork::{ForkDetector, ForkInfo, ForkStatistics};
+pub use health::{HealthIssue, HealthState, HealthStatus, LivenessCheck, ReadinessCheck};
+pub use metrics::{create_default_registry, PrometheusMetrics};
 pub use staking::{EmotionalStaking, RewardDistribution, SlashingEvent, Validator};
 pub use types::{Block, BlockHeader, Transaction, Vote, VotingResult};
 
