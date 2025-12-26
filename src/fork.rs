@@ -83,9 +83,10 @@ impl ForkDetector {
             // Fork detected!
             let competing_hashes: Vec<String> = blocks.iter().cloned().collect();
             warn!(
-                "⚠️  Fork detected at height {}: {} competing blocks",
-                height,
-                competing_hashes.len() + 1
+                block_height = height,
+                competing_blocks = competing_hashes.len() + 1,
+                new_block_hash = %hash,
+                "Fork detected - multiple blocks at same height"
             );
 
             // Add the competing block to the set (so has_fork works correctly)
@@ -149,9 +150,9 @@ impl ForkDetector {
         }
 
         info!(
-            "Resolving fork at height {} with {} competing blocks",
-            height,
-            blocks.len()
+            block_height = height,
+            competing_blocks = blocks.len(),
+            "Resolving fork using PoE fork choice rule"
         );
 
         // Get metadata for all competing blocks
@@ -183,13 +184,17 @@ impl ForkDetector {
         });
 
         let winning_hash = candidates[0].0.clone();
+        let winner_meta = &candidates[0].1;
 
         info!(
-            "Fork resolved at height {}: winner = {}... (emotional_score={}, consensus_strength={})",
-            height,
-            &winning_hash[..8],
-            candidates[0].1.emotional_score,
-            candidates[0].1.consensus_strength
+            block_height = height,
+            winning_hash = %&winning_hash[..12],
+            emotional_score = winner_meta.emotional_score,
+            consensus_strength = winner_meta.consensus_strength,
+            timestamp = winner_meta.timestamp,
+            competing_blocks = candidates.len(),
+            resolution_method = "emotional_score_priority",
+            "Fork resolved successfully"
         );
 
         // Update fork info with resolution
@@ -245,9 +250,10 @@ impl ForkDetector {
 
         if old_fork_count > new_fork_count {
             info!(
-                "Cleaned up {} old fork records (height <= {})",
-                old_fork_count - new_fork_count,
-                cutoff
+                forks_removed = old_fork_count - new_fork_count,
+                cutoff_height = cutoff,
+                forks_retained = new_fork_count,
+                "Old fork records cleaned up"
             );
         }
     }

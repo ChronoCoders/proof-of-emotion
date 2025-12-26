@@ -62,8 +62,12 @@ impl ByzantineDetector {
         // Check for double voting before adding
         if let Some(event) = self.detect_double_voting_internal(&votes, vote) {
             warn!(
-                "🚨 Double voting detected: validator {} voted differently in epoch {}",
-                vote.validator_id, vote.epoch
+                validator_id = %vote.validator_id,
+                epoch = vote.epoch,
+                round = vote.round,
+                block_hash = %vote.block_hash,
+                event_type = "double_voting",
+                "Byzantine behavior: double voting detected"
             );
 
             let mut events = self.slashing_events.write().await;
@@ -109,8 +113,11 @@ impl ByzantineDetector {
         // Check for double signing
         if let Some(event) = self.detect_double_signing_internal(&proposals, &evidence) {
             warn!(
-                "🚨 Double signing detected: validator {} proposed multiple blocks at height {}",
-                validator_id, height
+                validator_id = %validator_id,
+                block_height = height,
+                block_hash = %block_hash,
+                event_type = "double_signing",
+                "Byzantine behavior: double signing detected"
             );
 
             let mut events = self.slashing_events.write().await;
@@ -376,8 +383,12 @@ impl ByzantineDetector {
         self.votes.retain(|(_, epoch), _| *epoch >= cutoff_epoch);
 
         info!(
-            "🧹 Byzantine detector cleanup: retained data from epoch {} onwards",
-            cutoff_epoch
+            current_epoch = current_epoch,
+            cutoff_epoch = cutoff_epoch,
+            retention_epochs = retention_epochs,
+            votes_retained = self.votes.len(),
+            proposals_retained = self.proposals.len(),
+            "Byzantine detector cleanup completed"
         );
     }
 }

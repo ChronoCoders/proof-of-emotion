@@ -245,9 +245,10 @@ impl ProofOfEmotionEngine {
         self.validators.insert(id.clone(), Arc::new(validator));
 
         info!(
-            "✅ Validator {} registered with {} POE stake",
-            id,
-            stake
+            validator_id = %id,
+            stake = %stake,
+            total_validators = self.validators.len(),
+            "Validator registered"
         );
 
         Ok(())
@@ -262,15 +263,13 @@ impl ProofOfEmotionEngine {
         *running = true;
         drop(running);
 
-        info!("🚀 Starting Proof of Emotion consensus engine");
-        info!("⚙️  Epoch duration: {}ms", self.config.epoch_duration);
         info!(
-            "💓 Emotional threshold: {}%",
-            self.config.emotional_threshold
-        );
-        info!(
-            "🛡️  Byzantine threshold: {}%",
-            self.config.byzantine_threshold
+            epoch_duration_ms = self.config.epoch_duration,
+            emotional_threshold = self.config.emotional_threshold,
+            byzantine_threshold = self.config.byzantine_threshold,
+            committee_size = self.config.committee_size,
+            validators = self.validators.len(),
+            "Starting Proof of Emotion consensus engine"
         );
 
         let engine = Arc::clone(&self);
@@ -353,7 +352,11 @@ impl ProofOfEmotionEngine {
         let epoch = state.current_epoch;
         drop(state);
 
-        info!("⏰ Starting epoch {}", epoch);
+        info!(
+            epoch = epoch,
+            total_validators = self.validators.len(),
+            "Starting epoch"
+        );
 
         let eligible_validators = self.perform_emotional_assessment().await?;
 
@@ -364,26 +367,45 @@ impl ProofOfEmotionEngine {
         }
 
         info!(
-            "💓 {}/{} validators eligible",
-            eligible_validators.len(),
-            self.validators.len()
+            epoch = epoch,
+            eligible_validators = eligible_validators.len(),
+            total_validators = self.validators.len(),
+            eligibility_rate = (eligible_validators.len() as f64 / self.validators.len() as f64 * 100.0) as u8,
+            "Validators eligible after emotional assessment"
         );
 
         let committee = self.select_committee(&eligible_validators).await?;
 
-        info!("👥 Committee selected: {} validators", committee.len());
+        info!(
+            epoch = epoch,
+            committee_size = committee.len(),
+            eligible_validators = eligible_validators.len(),
+            "Committee selected"
+        );
 
         let proposed_block = self.propose_block(&committee).await?;
 
         info!(
-            "📦 Block {} proposed by {}",
-            proposed_block.header.height, proposed_block.header.validator_id
+            epoch = epoch,
+            block_height = proposed_block.header.height,
+            proposer = %proposed_block.header.validator_id,
+            emotional_score = proposed_block.header.emotional_score,
+            consensus_strength = proposed_block.header.consensus_strength,
+            transactions = proposed_block.transactions.len(),
+            "Block proposed"
         );
 
         let voting_result = self.execute_voting(&committee, &proposed_block).await?;
 
         if !voting_result.success {
-            warn!("❌ Voting failed: {:?}", voting_result.reason);
+            warn!(
+                epoch = epoch,
+                block_height = proposed_block.header.height,
+                reason = ?voting_result.reason,
+                votes_received = voting_result.votes.len(),
+                committee_size = committee.len(),
+                "Voting failed"
+            );
             return Err(ConsensusError::invalid_block(
                 voting_result
                     .reason
@@ -392,8 +414,12 @@ impl ProofOfEmotionEngine {
         }
 
         info!(
-            "✅ Consensus reached: {}% strength",
-            voting_result.consensus_strength
+            epoch = epoch,
+            block_height = proposed_block.header.height,
+            consensus_strength = voting_result.consensus_strength,
+            votes = voting_result.votes.len(),
+            committee_size = committee.len(),
+            "Consensus reached"
         );
 
         self.finalize_block(proposed_block, voting_result).await?;
@@ -405,7 +431,13 @@ impl ProofOfEmotionEngine {
             + duration)
             / metrics.total_epochs;
 
-        info!("✨ Epoch {} completed in {}ms", epoch, duration);
+        info!(
+            epoch = epoch,
+            duration_ms = duration,
+            total_epochs = metrics.total_epochs,
+            avg_duration_ms = metrics.average_duration_ms,
+            "Epoch completed successfully"
+        );
 
         Ok(())
     }
@@ -563,7 +595,13 @@ impl ProofOfEmotionEngine {
             .record_proposal(primary.id(), block.header.height, &block.hash)
             .await
         {
-            error!("🚨 Byzantine behavior detected during proposal: {}", e);
+            error!(
+                validator_id = %primary.id(),
+                block_height = block.header.height,
+                error = %e,
+                action = "slashing",
+                "Byzantine behavior detected during proposal - double signing"
+            );
             // Slash the validator for double signing
             self.slash_validator(primary.id(), "Double signing detected")
                 .await?;
@@ -624,7 +662,14 @@ impl ProofOfEmotionEngine {
 
             // Record vote for Byzantine detection (double voting & equivocation detection)
             if let Err(e) = self.byzantine_detector.record_vote(&vote).await {
-                warn!("🚨 Byzantine behavior detected during voting: {}", e);
+                warn!(
+                    validator_id = %validator.id(),
+                    block_height = block.header.height,
+                    epoch = block.header.epoch,
+                    error = %e,
+                    action = "slashing",
+                    "Byzantine behavior detected during voting - double voting or equivocation"
+                );
                 byzantine_count += 1;
 
                 // Slash the validator for double voting or equivocation
@@ -736,9 +781,14 @@ impl ProofOfEmotionEngine {
         state.pending_transactions = pending.len();
 
         info!(
-            "🎉 Block {} finalized with {} transactions",
-            block.header.height,
-            block.transactions.len()
+            block_height = block.header.height,
+            block_hash = %block.hash,
+            proposer = %block.header.validator_id,
+            transactions = block.transactions.len(),
+            emotional_score = block.header.emotional_score,
+            consensus_strength = voting_result.consensus_strength,
+            votes = voting_result.votes.len(),
+            "Block finalized"
         );
 
         // Update comprehensive metrics
@@ -833,10 +883,12 @@ impl ProofOfEmotionEngine {
             validator.adjust_reputation(-20);
 
             warn!(
-                "⚖️  Slashed validator {} (reputation now {}): {}",
-                validator_id,
-                validator.get_reputation(),
-                reason
+                validator_id = %validator_id,
+                reputation = validator.get_reputation(),
+                stake = validator.get_stake(),
+                reason = %reason,
+                penalty = 20,
+                "Validator slashed for Byzantine behavior"
             );
 
             Ok(())
@@ -871,13 +923,16 @@ impl ProofOfEmotionEngine {
     ///
     /// Note: In a real implementation, this would sync with network peers
     pub async fn recover_from_crash(&self) -> Result<()> {
-        info!("🔄 Attempting crash recovery...");
+        info!("Attempting crash recovery");
 
         // 1. Load last checkpoint
         if let Some(checkpoint) = self.checkpoint_manager.get_latest_checkpoint().await {
             info!(
-                "📍 Found checkpoint at height {} (epoch {})",
-                checkpoint.height, checkpoint.epoch
+                checkpoint_height = checkpoint.height,
+                checkpoint_epoch = checkpoint.epoch,
+                checkpoint_hash = %checkpoint.block_hash,
+                validators_signed = checkpoint.validator_signatures.len(),
+                "Found checkpoint for recovery"
             );
 
             // Restore from checkpoint
