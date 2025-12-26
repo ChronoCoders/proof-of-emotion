@@ -179,7 +179,7 @@ async fn test_memory_stability() {
     // Get initial memory
     let get_memory = || -> Option<u64> {
         let output = Command::new("ps")
-            .args(&["-o", "rss=", "-p", &std::process::id().to_string()])
+            .args(["-o", "rss=", "-p", &std::process::id().to_string()])
             .output()
             .ok()?;
         String::from_utf8(output.stdout)

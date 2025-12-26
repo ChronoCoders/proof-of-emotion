@@ -43,7 +43,6 @@ struct BlockMetadata {
     emotional_score: u8,
     consensus_strength: u8,
     timestamp: u64,
-    proposer: String,
 }
 
 impl ForkDetector {
@@ -70,7 +69,6 @@ impl ForkDetector {
                 emotional_score: block.header.emotional_score,
                 consensus_strength: block.header.consensus_strength,
                 timestamp: block.header.timestamp,
-                proposer: block.header.validator_id.clone(),
             },
         );
 
@@ -78,7 +76,7 @@ impl ForkDetector {
         let mut blocks = self
             .blocks_at_height
             .entry(height)
-            .or_insert_with(HashSet::new);
+            .or_default();
 
         // Check if this creates a fork
         if !blocks.is_empty() && !blocks.contains(&hash) {
@@ -292,7 +290,7 @@ pub struct ForkStatistics {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{BlockHeader, ConsensusMetadata};
+    use crate::types::BlockHeader;
 
     fn create_test_block(height: u64, hash: &str, emotional_score: u8, validator: &str) -> Block {
         Block {
