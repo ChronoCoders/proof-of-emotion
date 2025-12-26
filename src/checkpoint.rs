@@ -65,7 +65,7 @@ impl CheckpointManager {
 
     /// Check if a checkpoint should be created at this height
     pub fn should_create_checkpoint(&self, height: u64) -> bool {
-        height % self.checkpoint_interval == 0
+        height.is_multiple_of(self.checkpoint_interval)
     }
 
     /// Create a new checkpoint
@@ -82,7 +82,7 @@ impl CheckpointManager {
         if total_stake > 0 {
             let stake_percentage = (total_stake_signed * 100) / total_stake;
             if stake_percentage < self.minimum_stake_percentage as u64 {
-                return Err(ConsensusError::config_error(&format!(
+                return Err(ConsensusError::config_error(format!(
                     "Insufficient stake for checkpoint: {}% < {}%",
                     stake_percentage, self.minimum_stake_percentage
                 )));

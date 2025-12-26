@@ -76,7 +76,7 @@ impl ForkDetector {
         let mut blocks = self
             .blocks_at_height
             .entry(height)
-            .or_insert_with(HashSet::new);
+            .or_default();
 
         // Check if this creates a fork
         if !blocks.is_empty() && !blocks.contains(&hash) {
