@@ -48,7 +48,7 @@ cargo run --example staking_rewards
 │         │                   │              │
 │  ┌─────────────────────────────────────┐   │
 │  │      Economic Incentives Layer      │   │
-│  │  (Staking, Rewards, Slashing)       │   │
+│  │     (Staking, Rewards, Slashing)    │   │
 │  └─────────────────────────────────────┘   │
 └────────────────────────────────────────────┘
 ```
