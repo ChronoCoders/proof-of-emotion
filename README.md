@@ -6,13 +6,15 @@ Proof of Emotion is a next-generation consensus mechanism that combines traditio
 
 ## Key Features
 
-- 🛡️ **Byzantine Fault Tolerance**: 67% honest validator requirement with robust defense against malicious actors
-- 💓 **Biometric Validation**: Real-time heart rate, stress level, and focus monitoring
-- 🎯 **Emotional Scoring**: Dynamic validator fitness based on physiological authenticity
-- ⚡ **High Performance**: Optimized for 1000+ validators with parallel processing
-- 🔒 **Cryptographic Security**: ECDSA signatures, Merkle proofs, and optional ZK-proof support
-- 💰 **Economic Incentives**: Stake-weighted rewards with emotional multipliers
-- 🧪 **Comprehensive Testing**: 49 passing tests including Byzantine fault detection, load testing, and property-based tests
+- **Byzantine Fault Tolerance**: 67% honest validator requirement with robust defense against malicious actors
+- **Biometric Validation**: Real-time heart rate, stress level, and focus monitoring
+- **Emotional Scoring**: Dynamic validator fitness based on physiological authenticity
+- **High Performance**: Optimized for 1000+ validators with parallel processing
+- **Cryptographic Security**: ECDSA signatures, Merkle proofs, and optional ZK-proof support
+- **Economic Incentives**: Stake-weighted rewards with emotional multipliers
+- **Fault Tolerance**: Fork detection, checkpoint system, and crash recovery
+- **Observability**: Prometheus metrics, health checks, and structured logging
+- **Comprehensive Testing**: 63 passing tests including Byzantine fault detection, load testing, and property-based tests
 
 ## Quick Start
 
@@ -33,24 +35,34 @@ cargo run --example staking_rewards
 ## Architecture
 
 ```
-┌────────────────────────────────────────────┐
-│         Proof of Emotion Engine            │
-├────────────────────────────────────────────┤
-│  ┌──────────────┐  ┌──────────────────┐    │
-│  │  Biometric   │  │    Consensus     │    │
-│  │  Validation  │──│     Protocol     │    │
-│  └──────────────┘  └──────────────────┘    │
-│         │                   │              │
-│  ┌──────────────┐  ┌──────────────────┐    │
-│  │  Emotional   │  │  Cryptographic   │    │
-│  │   Scoring    │──│    Security      │    │
-│  └──────────────┘  └──────────────────┘    │
-│         │                   │              │
-│  ┌─────────────────────────────────────┐   │
-│  │      Economic Incentives Layer      │   │
-│  │  (Staking, Rewards, Slashing)       │   │
-│  └─────────────────────────────────────┘   │
-└────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────┐
+│         Proof of Emotion Engine                    │
+├────────────────────────────────────────────────────┤
+│  ┌──────────────┐  ┌──────────────────┐            │
+│  │  Biometric   │  │    Consensus     │            │
+│  │  Validation  │──│     Protocol     │            │
+│  └──────────────┘  └──────────────────┘            │
+│         │                   │                      │
+│  ┌──────────────┐  ┌──────────────────┐            │
+│  │  Emotional   │  │  Cryptographic   │            │
+│  │   Scoring    │──│    Security      │            │
+│  └──────────────┘  └──────────────────┘            │
+│         │                   │                      │
+│  ┌──────────────┐  ┌──────────────────┐            │
+│  │  Byzantine   │  │  Fork Detection  │            │
+│  │  Detection   │──│  & Resolution    │            │
+│  └──────────────┘  └──────────────────┘            │
+│         │                   │                      │
+│  ┌──────────────┐  ┌──────────────────┐            │
+│  │  Checkpoint  │  │    Observability │            │
+│  │   System     │──│  (Metrics/Health)│            │
+│  └──────────────┘  └──────────────────┘            │
+│         │                   │                      │
+│  ┌─────────────────────────────────────────────┐   │
+│  │      Economic Incentives Layer              │   │
+│  │  (Staking, Rewards, Slashing)               │   │
+│  └─────────────────────────────────────────────┘   │
+└────────────────────────────────────────────────────┘
 ```
 
 ## Core Components
@@ -78,6 +90,17 @@ cargo run --example staking_rewards
 - Delegated staking support
 - Commission-based rewards
 - Graduated slashing for violations
+
+### 5. Fault Tolerance System
+- **Fork Detection**: Identifies competing blocks at same height
+- **Fork Resolution**: Emotional score-based fork choice rule
+- **Checkpoint System**: Byzantine fault-tolerant state snapshots (67% validator signatures required)
+- **Crash Recovery**: Restore from checkpoints with block replay and state validation
+
+### 6. Observability & Monitoring
+- **Prometheus Metrics**: 19 metric types including counters, gauges, histograms, and vector metrics
+- **Health Checks**: Liveness and readiness probes with degraded/critical state detection
+- **Structured Logging**: Rich contextual fields for consensus phases, Byzantine events, and performance metrics
 
 ## Performance Benchmarks
 
@@ -133,8 +156,18 @@ cargo test --lib
 # Integration tests
 cargo test --test integration_tests
 
+# Specific module tests
+cargo test fork
+cargo test checkpoint
+cargo test byzantine
+cargo test metrics
+cargo test health
+
 # With output
 cargo test -- --nocapture
+
+# Linting
+cargo clippy --all-targets --all-features
 ```
 
 ## Usage Examples
@@ -150,14 +183,14 @@ async fn main() -> anyhow::Result<()> {
     // Create consensus configuration
     let config = ConsensusConfig::default();
     let engine = Arc::new(ProofOfEmotionEngine::new(config)?);
-    
+
     // Register validators
     let validator = EmotionalValidator::new("validator-1", 10_000)?;
     engine.register_validator(validator).await?;
-    
+
     // Start consensus
     Arc::clone(&engine).start().await?;
-    
+
     Ok(())
 }
 ```
@@ -169,7 +202,7 @@ use proof_of_emotion::staking::EmotionalStaking;
 
 fn main() -> anyhow::Result<()> {
     let staking = EmotionalStaking::new(10_000);
-    
+
     // Register validator
     staking.register_validator(
         "alice".to_string(),
@@ -177,7 +210,7 @@ fn main() -> anyhow::Result<()> {
         15_000,  // stake
         5,       // 5% commission
     )?;
-    
+
     // Delegate stake
     staking.delegate_stake(
         "alice".to_string(),
@@ -185,7 +218,81 @@ fn main() -> anyhow::Result<()> {
         5_000,
         21 * 24 * 60 * 60, // 21 day lock
     )?;
-    
+
+    Ok(())
+}
+```
+
+### Crash Recovery
+
+```rust
+use proof_of_emotion::ProofOfEmotionEngine;
+use std::sync::Arc;
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let engine = Arc::new(ProofOfEmotionEngine::new(config)?);
+
+    // Recover from crash using checkpoints
+    engine.recover_from_crash().await?;
+
+    // Continue normal operation
+    Arc::clone(&engine).start().await?;
+
+    Ok(())
+}
+```
+
+### Health Monitoring
+
+```rust
+use proof_of_emotion::health::HealthStatus;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let engine = Arc::new(ProofOfEmotionEngine::new(config)?);
+
+    let start_time = SystemTime::now()
+        .duration_since(UNIX_EPOCH)?
+        .as_secs();
+
+    // Check health status
+    let health = HealthStatus::from_consensus(&engine, start_time).await;
+
+    println!("Status: {:?}", health.status);
+    println!("Consensus Strength: {}%", health.consensus_strength);
+    println!("Active Validators: {}", health.active_validators);
+
+    if !health.is_healthy() {
+        println!("Issues: {}", health.status_message());
+    }
+
+    Ok(())
+}
+```
+
+### Prometheus Metrics
+
+```rust
+use proof_of_emotion::metrics::{create_default_registry, PrometheusMetrics};
+use std::sync::Arc;
+
+fn main() -> anyhow::Result<()> {
+    // Create Prometheus registry with all POE metrics
+    let (registry, metrics) = create_default_registry()?;
+
+    // Update metrics from consensus engine
+    let consensus_metrics = engine.get_metrics().await;
+    metrics.update_from_consensus(&consensus_metrics);
+
+    // Record custom events
+    metrics.record_byzantine_event("double_signing", "validator-1");
+    metrics.update_validator_stake("validator-1", 50000);
+
+    // Export metrics (integrate with Prometheus server)
+    let metric_families = registry.gather();
+
     Ok(())
 }
 ```
@@ -194,8 +301,10 @@ fn main() -> anyhow::Result<()> {
 
 The project includes comprehensive testing:
 
-- **32 unit tests**: Individual component testing
-- **11 integration tests**: Full consensus flow validation
+- **63 unit tests**: Individual component testing
+- **19 integration tests**: Full consensus flow validation
+- **14 property tests**: Invariant verification
+- **5 load tests**: Performance benchmarking (ignored by default)
 - **1 doctest**: API documentation verification
 - **3 examples**: Live demonstrations
 
@@ -207,6 +316,7 @@ run_all_tests.bat     # Windows
 # Individual test suites
 cargo test --lib                      # Unit tests
 cargo test --test integration_tests   # Integration tests
+cargo test --test property_tests      # Property-based tests
 cargo test --doc                      # Doctests
 
 # With verbose output
@@ -225,6 +335,46 @@ cargo bench emotional_validation
 cargo bench staking
 ```
 
+## Monitoring and Observability
+
+### Structured Logging
+
+All critical operations emit structured logs with rich contextual fields:
+
+```rust
+// Validator registration
+info!(
+    validator_id = "validator-1",
+    stake = 10000,
+    total_validators = 5,
+    "Validator registered"
+);
+
+// Byzantine detection
+error!(
+    validator_id = "malicious-validator",
+    block_height = 42,
+    event_type = "double_signing",
+    "Byzantine behavior detected"
+);
+```
+
+### Health Endpoints
+
+- **Liveness**: Basic process health check
+- **Readiness**: Full system readiness (consensus strength, participation, etc.)
+- **Health Status**: Detailed health report with issues and recommendations
+
+### Prometheus Metrics
+
+Available metrics include:
+- `poe_blocks_finalized_total` - Total finalized blocks
+- `poe_byzantine_detected_total` - Byzantine behaviors detected
+- `poe_consensus_strength` - Current consensus strength (0-100)
+- `poe_active_validators` - Number of active validators
+- `poe_epoch_duration_seconds` - Epoch duration distribution
+- Plus 14 additional metrics for comprehensive monitoring
+
 ## Documentation
 
 - [Quick Start Guide](QUICKSTART.md) - Get started in 5 minutes
@@ -233,12 +383,12 @@ cargo bench staking
 - [Project Summary](PROJECT_SUMMARY.md) - Technical deep dive
 - [Security Policy](SECURITY.md) - Security considerations and responsible disclosure
 
-## ⚠️ Security Considerations
+## Security Considerations
 
 ### Current Status
-- 🔴 **NOT PRODUCTION READY**
-- 🔴 **NOT AUDITED**
-- 🔴 **EXPERIMENTAL RESEARCH**
+- **NOT PRODUCTION READY**
+- **NOT AUDITED**
+- **EXPERIMENTAL RESEARCH**
 
 ### Known Security Issues
 
@@ -255,7 +405,7 @@ cargo bench staking
 3. **Attack Vectors**
    - Nothing-at-stake (mitigated by stake locking)
    - Biometric spoofing (requires hardware security)
-   - Long-range attacks (need checkpointing)
+   - Long-range attacks (mitigated by checkpointing)
    - Eclipse attacks (need peer diversity)
 
 4. **Economic Assumptions**
@@ -281,12 +431,16 @@ For more details, see [SECURITY.md](SECURITY.md).
 
 ## Roadmap
 
-### Phase 1: Core Implementation ✅ (Current)
+### Phase 1: Core Implementation (COMPLETED)
 - [x] Byzantine fault-tolerant consensus
 - [x] Biometric validation system
 - [x] Emotional scoring algorithm
 - [x] Economic incentives layer
-- [x] Comprehensive test suite
+- [x] Fork detection and resolution
+- [x] Checkpoint system for crash recovery
+- [x] Prometheus metrics and health checks
+- [x] Structured logging
+- [x] Comprehensive test suite (63 tests)
 
 ### Phase 2: Network Layer (Q1 2026)
 - [ ] P2P networking with libp2p
@@ -322,6 +476,8 @@ Contributions are welcome! Please:
 - Ensure `cargo clippy` passes with zero warnings
 - Format code with `cargo fmt`
 - Update documentation as needed
+- Use structured logging with contextual fields
+- Add Prometheus metrics for new components
 
 ## License
 
@@ -332,6 +488,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - Built with [Rust](https://www.rust-lang.org/) and [Tokio](https://tokio.rs/)
 - Inspired by Byzantine Fault Tolerance research
 - Cryptography powered by [secp256k1](https://github.com/rust-bitcoin/rust-secp256k1)
+- Metrics powered by [Prometheus](https://prometheus.io/)
 
 ## Contact
 
@@ -340,7 +497,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ---
 
-**⚠️ IMPORTANT DISCLAIMER**
+**IMPORTANT DISCLAIMER**
 
 This is an **experimental consensus mechanism for research purposes only**.
 
