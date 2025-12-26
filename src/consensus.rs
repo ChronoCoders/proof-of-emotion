@@ -176,6 +176,10 @@ pub struct ProofOfEmotionEngine {
     shutdown_signal: Arc<tokio::sync::Notify>,
     /// Byzantine fault detector
     byzantine_detector: Arc<ByzantineDetector>,
+    /// Fork detector and resolver
+    fork_detector: Arc<crate::fork::ForkDetector>,
+    /// Checkpoint manager for crash recovery
+    checkpoint_manager: Arc<crate::checkpoint::CheckpointManager>,
 }
 
 impl ProofOfEmotionEngine {
@@ -195,6 +199,9 @@ impl ProofOfEmotionEngine {
             return Err(ConsensusError::config_error("Committee size must be > 0"));
         }
 
+        // Checkpoint interval: every 100 blocks (configurable)
+        let checkpoint_interval = 100;
+
         Ok(Self {
             config,
             validators: Arc::new(DashMap::new()),
@@ -213,6 +220,8 @@ impl ProofOfEmotionEngine {
             finalized_blocks: Arc::new(RwLock::new(Vec::new())),
             shutdown_signal: Arc::new(tokio::sync::Notify::new()),
             byzantine_detector: Arc::new(ByzantineDetector::new()),
+            fork_detector: Arc::new(crate::fork::ForkDetector::new()),
+            checkpoint_manager: Arc::new(crate::checkpoint::CheckpointManager::new(checkpoint_interval)),
         })
     }
 
@@ -843,6 +852,200 @@ impl ProofOfEmotionEngine {
         let current_epoch = self.state.read().await.current_epoch;
         // Keep last 100 epochs of data
         self.byzantine_detector.cleanup_old_data(current_epoch, 100);
+    }
+
+    // ========== Crash Recovery and Fault Tolerance ==========
+
+    /// Recover from a crash using checkpoints and block replay
+    ///
+    /// This method attempts to restore consensus state after a crash by:
+    /// 1. Loading the latest checkpoint
+    /// 2. Replaying finalized blocks since the checkpoint
+    /// 3. Validating state consistency
+    ///
+    /// Note: In a real implementation, this would sync with network peers
+    pub async fn recover_from_crash(&self) -> Result<()> {
+        info!("🔄 Attempting crash recovery...");
+
+        // 1. Load last checkpoint
+        if let Some(checkpoint) = self.checkpoint_manager.get_latest_checkpoint().await {
+            info!(
+                "📍 Found checkpoint at height {} (epoch {})",
+                checkpoint.height, checkpoint.epoch
+            );
+
+            // Restore from checkpoint
+            self.restore_from_checkpoint(&checkpoint).await?;
+
+            // 2. Replay blocks since checkpoint
+            let current_height = self.state.read().await.last_finalized_height;
+            if current_height > checkpoint.height {
+                info!(
+                    "🔁 Replaying {} blocks since checkpoint",
+                    current_height - checkpoint.height
+                );
+                self.replay_blocks_since_checkpoint(&checkpoint).await?;
+            }
+        } else {
+            info!("No checkpoint found, starting from genesis");
+        }
+
+        // 3. In a real implementation, sync with network
+        // self.sync_with_network().await?;
+
+        // 4. Validate state consistency
+        self.validate_state().await?;
+
+        info!("✅ Crash recovery complete");
+        Ok(())
+    }
+
+    /// Restore consensus state from a checkpoint
+    async fn restore_from_checkpoint(&self, checkpoint: &crate::checkpoint::Checkpoint) -> Result<()> {
+        // Verify checkpoint is valid
+        if !self.checkpoint_manager.verify_checkpoint(checkpoint).await? {
+            return Err(ConsensusError::internal("Invalid checkpoint"));
+        }
+
+        // Restore state
+        let mut state = self.state.write().await;
+        state.current_epoch = checkpoint.epoch;
+        state.last_finalized_height = checkpoint.height;
+
+        // Note: In a full implementation, we would restore:
+        // - Complete finalized block chain
+        // - Validator states and stakes
+        // - Pending transaction pool
+        // - Metrics and statistics
+
+        info!(
+            "Restored state from checkpoint: height={}, epoch={}",
+            checkpoint.height, checkpoint.epoch
+        );
+
+        Ok(())
+    }
+
+    /// Replay blocks since the last checkpoint to rebuild state
+    async fn replay_blocks_since_checkpoint(
+        &self,
+        checkpoint: &crate::checkpoint::Checkpoint,
+    ) -> Result<()> {
+        let blocks = self.finalized_blocks.read().await;
+
+        // Find blocks after checkpoint
+        let replay_blocks: Vec<_> = blocks
+            .iter()
+            .filter(|b| b.header.height > checkpoint.height)
+            .collect();
+
+        info!("Replaying {} blocks", replay_blocks.len());
+
+        for block in replay_blocks {
+            // Validate block
+            if !block.verify_hash() {
+                warn!("Block {} has invalid hash during replay", block.header.height);
+                continue;
+            }
+
+            // Update state from block
+            if let Some(metadata) = &block.consensus_metadata {
+                let mut state = self.state.write().await;
+                state.last_finalized_height = block.header.height;
+                state.consensus_strength = metadata.consensus_strength;
+                state.emotional_fitness = metadata.emotional_fitness;
+            }
+
+            // Record in fork detector
+            if let Err(e) = self.fork_detector.record_block(block).await {
+                warn!("Fork detected during replay at height {}: {}", block.header.height, e);
+                // Attempt to resolve the fork
+                let _ = self.fork_detector.resolve_fork(block.header.height).await;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Validate that the current state is consistent
+    async fn validate_state(&self) -> Result<()> {
+        let state = self.state.read().await;
+        let blocks = self.finalized_blocks.read().await;
+
+        // Check that last finalized height matches block count
+        if !blocks.is_empty() {
+            let last_block = blocks.last().unwrap();
+            if last_block.header.height != state.last_finalized_height {
+                return Err(ConsensusError::internal(format!(
+                    "State inconsistency: last_finalized_height={} but last block height={}",
+                    state.last_finalized_height, last_block.header.height
+                )));
+            }
+        }
+
+        // Verify chain continuity
+        for i in 1..blocks.len() {
+            let prev_block = &blocks[i - 1];
+            let curr_block = &blocks[i];
+
+            if curr_block.header.height != prev_block.header.height + 1 {
+                return Err(ConsensusError::internal(format!(
+                    "Chain discontinuity: block {} -> {}",
+                    prev_block.header.height, curr_block.header.height
+                )));
+            }
+
+            if curr_block.header.previous_hash != prev_block.hash {
+                return Err(ConsensusError::internal(format!(
+                    "Chain hash mismatch at height {}",
+                    curr_block.header.height
+                )));
+            }
+        }
+
+        info!("State validation passed: {} blocks verified", blocks.len());
+        Ok(())
+    }
+
+    /// Create a checkpoint if at checkpoint interval
+    pub async fn try_create_checkpoint(&self, block: &Block) -> Result<Option<crate::checkpoint::Checkpoint>> {
+        if !self.checkpoint_manager.should_create_checkpoint(block.header.height) {
+            return Ok(None);
+        }
+
+        info!("Creating checkpoint at height {}", block.header.height);
+
+        // In a real implementation, collect signatures from validators
+        // For now, create an empty checkpoint as a placeholder
+        let _validator_signatures: Vec<crate::checkpoint::ValidatorSignature> = vec![];
+
+        // Update total stake in checkpoint manager
+        let total_stake: u64 = self
+            .validators
+            .iter()
+            .map(|entry| entry.value().get_stake())
+            .sum();
+
+        self.checkpoint_manager.update_total_stake(total_stake).await;
+
+        // Note: In production, this would fail without real validator signatures
+        // For testing/development, we skip this
+        info!(
+            "Checkpoint interval reached at height {} (signatures would be collected from validators)",
+            block.header.height
+        );
+
+        Ok(None)
+    }
+
+    /// Get fork detector for external access
+    pub fn get_fork_detector(&self) -> Arc<crate::fork::ForkDetector> {
+        Arc::clone(&self.fork_detector)
+    }
+
+    /// Get checkpoint manager for external access
+    pub fn get_checkpoint_manager(&self) -> Arc<crate::checkpoint::CheckpointManager> {
+        Arc::clone(&self.checkpoint_manager)
     }
 }
 
