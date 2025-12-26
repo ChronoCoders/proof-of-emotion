@@ -4,7 +4,6 @@ use crate::crypto::{KeyPair, Signature};
 use crate::error::{ConsensusError, Result};
 use crate::types::Block;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{info, warn};
@@ -296,7 +295,7 @@ pub struct CheckpointStatistics {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{BlockHeader, Transaction};
+    use crate::types::BlockHeader;
 
     fn create_test_block(height: u64, hash: &str) -> Block {
         Block {
